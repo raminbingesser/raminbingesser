@@ -139,19 +139,23 @@ api.post('/projects', wrap((req) => {
   const { dir, name, create } = req.body;
   if (!dir) throw new Error('Ordner fehlt.');
   const abs = path.resolve(dir.replace(/^~(?=$|\/)/, os.homedir()));
+  if (create && fs.existsSync(abs) && fs.readdirSync(abs).length > 0) {
+    throw new Error(`Der Ordner ${abs} existiert schon. Wähle einen anderen Namen oder öffne ihn über „Ordner öffnen“.`);
+  }
   if (create) fs.mkdirSync(abs, { recursive: true });
   if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) throw new Error('Ordner existiert nicht.');
   const p = store.addProject({ name, dir: abs });
   if (create) {
     brain.ensureBrain(p.path, p.name);
-    // Versionierung gleich einschalten, damit Varianten und Sicherungspunkte sofort gehen.
-    if (!fs.existsSync(path.join(p.path, '.git'))) {
-      execFile('git', ['init'], { cwd: p.path }, (e) => {
-        if (e) return;
-        fs.writeFileSync(path.join(p.path, '.gitignore'), 'node_modules/\n.DS_Store\n.env\n.env.*\n.flint/\ndist/\n');
-        execFile('git', ['add', '-A'], { cwd: p.path }, async () => execFile('git', [...await files.identity(p.path), 'commit', '-m', 'Projekt angelegt'], { cwd: p.path }, () => { }));
-      });
-    }
+    // Versionierung gleich einschalten, damit Varianten und Sicherungspunkte sofort gehen
+    // (nur wenn der neue Ordner nicht schon in einem Repo liegt).
+    files.repoInfo(p.path).then(async (info) => {
+      if (info) return;
+      try {
+        await files.gitInit(p.path);
+        await files.gitCommit(p.path, 'Projekt angelegt');
+      } catch { /* Git fehlt: Versionen-Tab bietet es später an */ }
+    });
   }
   watchProject(p);
   broadcast({ type: 'project:added', project: p });
@@ -216,14 +220,14 @@ api.post('/projects/:pid/variants', wrap(async (req) => {
 api.get('/projects/:pid/variant/diff', wrap(async (req) => ({ stat: await variants.variantDiffStat(req.params.pid) })));
 api.post('/projects/:pid/variant/apply', wrap(async (req) => {
   const v = project(req);
-  dropProject(v.id);
+  if (store.listSessions(v.id).some(s => agents.isBusy(s.id))) throw new Error('In der Variante arbeitet noch ein Agent. Warte, bis er fertig ist, oder stoppe ihn.');
   try {
-    const parent = await variants.applyVariant(v.id);
+    // Erst zusammenführen; Agenten/Terminals der Variante nur bei Erfolg beenden.
+    const parent = await variants.applyVariant(v.id, () => dropProject(v.id));
     broadcast({ type: 'project:removed', projectId: v.id });
     return { parentId: parent.id };
   } catch (e) {
-    watchProject(v);
-    if (e.conflict) return { conflict: true, branch: v.branch, parentId: v.variantOf, message: e.message };
+    if (e.conflict) return { conflict: true, branch: v.branch, parentId: v.variantOf, variantId: v.id, message: e.message };
     throw e;
   }
 }));
@@ -353,7 +357,7 @@ api.post('/projects/:pid/git/push', wrap((req) => files.gitPush(project(req).pat
 api.get('/projects/:pid/terminals', wrap((req) => term.listTerminals(req.params.pid)));
 api.post('/projects/:pid/terminals', wrap((req) => {
   const p = project(req);
-  const t = term.createTerminal({ projectId: p.id, cwd: p.path, env: vault.envFor(p.id), title: req.body?.title, emit: broadcast });
+  const t = term.createTerminal({ projectId: p.id, cwd: p.path, env: vault.envFor(p.variantOf || p.id), title: req.body?.title, emit: broadcast });
   const presets = {
     claude: () => claude.claudeCommand(),
     login: () => claude.claudeCommand('auth login'),
@@ -435,7 +439,10 @@ preview.get(`/p/${PTOKEN}/:pid/*`, (req, res) => {
   const p = store.getProject(req.params.pid);
   if (!p) return res.sendStatus(404);
   try {
-    let f = files.resolveIn(p.path, decodeURIComponent(req.params[0] || ''));
+    const rel = req.params[0] || ''; // Express hat den Pfad schon dekodiert
+    // Versteckte Dateien (.env, .git …) nie an Vorschau-Seiten ausliefern.
+    if (rel.split('/').some(seg => seg.startsWith('.') && seg !== '.well-known')) return res.status(404).type('text').send('Datei nicht gefunden.');
+    let f = files.resolveIn(p.path, rel);
     if (fs.existsSync(f) && fs.statSync(f).isDirectory()) f = path.join(f, 'index.html');
     if (!fs.existsSync(f)) return res.status(404).type('text').send('Datei nicht gefunden.');
     res.set('Cache-Control', 'no-store');
@@ -444,6 +451,7 @@ preview.get(`/p/${PTOKEN}/:pid/*`, (req, res) => {
       h = /<head[^>]*>/i.test(h) ? h.replace(/<head[^>]*>/i, (m) => m + BRIDGE) : BRIDGE + h;
       return res.type('html').send(h);
     }
+    // 'allow', weil Varianten unter ~/.flint liegen; versteckte Pfadteile sind oben schon abgewiesen.
     res.sendFile(f, { dotfiles: 'allow' });
   } catch (e) { res.status(400).send(e.message); }
 });
@@ -495,6 +503,6 @@ server.listen(PORT, '127.0.0.1', async () => {
   }
 });
 
-function shutdown() { term.killAll(); process.exit(0); }
+function shutdown() { term.killAll(); store.flush(); process.exit(0); }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

@@ -39,7 +39,8 @@ async function bossServer(boss) {
         titel: z.string().describe('Kurzer Name, z. B. "Designer" oder "Daten-Anbindung"'),
         auftrag: z.string().describe('Vollständiger Auftrag inklusive Dateien, Ziel und Abnahmekriterien'),
       }, async ({ titel, auftrag }) => {
-        if (helpers().length >= 6) return text('Es laufen schon 6 Helfer. Warte, bis einer fertig ist.');
+        const active = helpers().filter(h => { const r = runtime(h.id); return r.status !== 'idle' || r.queue.length; });
+        if (active.length >= 6) return text('Es laufen schon 6 Helfer. Warte, bis einer fertig ist (helfer_status).');
         const s = store.addSession(boss.projectId, { title: titel, role: `Helfer von "${boss.title}". Auftrag: ${auftrag.slice(0, 500)}`, model: boss.model, effort: boss.effort, permissionMode: boss.permissionMode });
         store.updateSession(s.id, { parentId: boss.id });
         emit({ type: 'session:updated', session: store.getSession(s.id) });
@@ -116,6 +117,7 @@ function setStatus(sid, status) {
 
 function record(sid, ev) {
   ev.ts = Date.now();
+  if (!store.getSession(sid)) return; // Sitzung wurde gelöscht
   store.appendEvent(sid, ev);
   emit({ type: 'session:event', sid, event: ev });
 }
@@ -163,8 +165,12 @@ export async function interrupt(sid) {
   for (const [reqId, p] of r.pending) {
     p.resolve({ behavior: 'deny', message: 'Abgebrochen.', interrupt: true });
     r.pending.delete(reqId);
+    emit({ type: 'perm:resolved', sid, reqId });
   }
-  try { await r.query?.interrupt(); } catch { r.abort?.abort(); }
+  if (r.status === 'waiting') setStatus(sid, 'running');
+  // Läuft die Abfrage noch nicht (Start), merken und gleich nach dem Start abbrechen.
+  if (!r.query) { r.cancelled = true; r.abort?.abort(); return; }
+  try { await r.query.interrupt(); } catch { r.abort?.abort(); }
 }
 
 export function answerPermission(sid, reqId, decision, answers) {
@@ -215,7 +221,8 @@ async function runTurn(sid, text) {
 
   const abort = new AbortController();
   r.abort = abort;
-  const vaultEnv = envFor(project.id);
+  r.cancelled = false;
+  const vaultEnv = envFor(project.variantOf || project.id); // Varianten erben die Schlüssel
   const options = {
     cwd: project.path,
     model: s.model,
@@ -227,9 +234,10 @@ async function runTurn(sid, text) {
     env: { ...process.env, ...vaultEnv },
     systemPrompt: { type: 'preset', preset: 'claude_code', append: systemAddendum(project, s.role) + (s.parentId || MOCK ? '' : '\n\nDu kannst mit den Werkzeugen helfer_starten, helfer_status und helfer_nachricht parallele Helfer-Agenten im selben Projekt starten. Nutze das nur für wirklich unabhängige Teilaufgaben, die gleichzeitig laufen können, und achte darauf, dass Helfer nicht dieselben Dateien bearbeiten. Kleine Aufgaben erledigst du selbst.') },
     agents: TEAM,
-    canUseTool: (toolName, input, { signal, suggestions }) => new Promise(resolve => {
-      // Flints eigene Chef/Helfer-Werkzeuge brauchen keine Freigabe.
-      if (toolName.startsWith('mcp__flint__')) return resolve({ behavior: 'allow', updatedInput: input });
+    canUseTool: (toolName, input, opts) => new Promise(resolve => {
+      const { signal, suggestions } = opts || {};
+      // Flints eigene Chef/Helfer-Werkzeuge (vom SDK-Host registriert) brauchen keine Freigabe.
+      if (toolName.startsWith('mcp__flint__') && opts?.mcpServer?.source === 'sdk') return resolve({ behavior: 'allow', updatedInput: input });
       const reqId = store.id();
       const shown = clip(JSON.stringify(input, null, 2), 3000);
       const questions = toolName === 'AskUserQuestion' && Array.isArray(input?.questions) ? input.questions : undefined;
@@ -254,9 +262,11 @@ async function runTurn(sid, text) {
   let streamed = '';
   try {
     const query = await getQuery();
+    if (r.cancelled) throw new Error('aborted');
     const q = query({ prompt: text, options });
     r.query = q;
     for await (const m of q) {
+      if (!store.getSession(sid)) { try { await q.interrupt(); } catch { } break; } // gelöscht
       if (m.session_id && m.session_id !== store.getSession(sid)?.claudeSessionId) {
         store.updateSession(sid, { claudeSessionId: m.session_id });
       }
@@ -297,6 +307,7 @@ async function runTurn(sid, text) {
       }
       if (m.type === 'result') {
         const u = m.usage || {};
+        if (!store.getSession(sid)) continue;
         const cur = store.getSession(sid).usage || { costUsd: 0, inputTokens: 0, outputTokens: 0, turns: 0 };
         const usage = {
           costUsd: cur.costUsd + (m.total_cost_usd || 0),

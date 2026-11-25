@@ -36,14 +36,25 @@ try {
 } catch { /* erster Start */ }
 
 let saveTimer = null;
+function writeNow() {
+  const tmp = CONFIG + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, CONFIG);
+}
 export function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    const tmp = CONFIG + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
-    fs.renameSync(tmp, CONFIG);
-  }, 50);
+  saveTimer = setTimeout(() => { saveTimer = null; writeNow(); }, 50);
 }
+// Beim Beenden sofort schreiben, damit nichts verloren geht.
+export function flush() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; writeNow(); }
+}
+
+// Sitzungs-IDs kommen aus URLs: nur unsere eigenen Hex-IDs zulassen.
+const transcript = (sid) => {
+  if (!/^[0-9a-f]{12}$/.test(String(sid))) throw new Error('Ungültige Sitzung.');
+  return path.join(TRANSCRIPTS, sid + '.jsonl');
+};
 
 export const id = () => crypto.randomBytes(6).toString('hex');
 
@@ -109,18 +120,18 @@ export function updateSession(sid, patch) {
 
 export function removeSession(sid) {
   delete state.sessions[sid];
-  fs.rmSync(path.join(TRANSCRIPTS, sid + '.jsonl'), { force: true });
+  fs.rmSync(transcript(sid), { force: true });
   save();
 }
 
 // Verlauf: eine JSON-Zeile pro UI-Ereignis.
 export function appendEvent(sid, ev) {
-  fs.appendFileSync(path.join(TRANSCRIPTS, sid + '.jsonl'), JSON.stringify(ev) + '\n', { mode: 0o600 });
+  fs.appendFileSync(transcript(sid), JSON.stringify(ev) + '\n', { mode: 0o600 });
 }
 
 export function readEvents(sid) {
   try {
-    return fs.readFileSync(path.join(TRANSCRIPTS, sid + '.jsonl'), 'utf8')
+    return fs.readFileSync(transcript(sid), 'utf8')
       .split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
   } catch { return []; }
 }

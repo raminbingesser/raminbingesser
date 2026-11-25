@@ -503,7 +503,8 @@ function VariantActions({ pid }) {
       close();
       toast(r.message, 'err');
       selectProject(r.parentId);
-      sendPrompt(`Führe den Git-Branch ${r.branch} (Variante „${v.variantName}“) in den aktuellen Branch zusammen und löse die Konflikte sinnvoll. Danach kann der Branch gelöscht werden.`);
+      sendPrompt(`Führe den Git-Branch ${r.branch} (Variante „${v.variantName}“) in den aktuellen Branch zusammen (git merge ${r.branch}) und löse die Konflikte sinnvoll. Lösche den Branch nicht, das erledigt Flint.`);
+      toast('Wenn Claude fertig ist: Variante in der Seitenleiste öffnen und „Verwerfen“ wählen. Die Änderungen sind dann schon im Hauptprojekt.');
       return;
     }
     set({ projects: S.projects.filter(x => x.id !== pid), modal: null });

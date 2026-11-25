@@ -67,28 +67,53 @@ export function writeBrain(dir, text) {
   fs.writeFileSync(p.brain, text);
 }
 
-export function parseRoadmap(md) {
-  const cols = Object.fromEntries(COLUMNS.map(c => [c, []]));
-  let cur = null;
+// Liest ROADMAP.md vollständig: Vorspann, je Spalte Notizen (Fließtext, ###) und
+// Karten (oberste Listenpunkte) mit ihren eingerückten Unterpunkten.
+const ITEM = /^[-*]\s+(\[[ xX]\]\s+)?(.+?)\s*$/;
+function parseFull(md) {
+  const pre = [];
+  const sections = [];
+  let sec = null, item = null;
   for (const line of (md || '').split('\n')) {
     const h = line.match(/^##\s+(.+?)\s*$/);
-    if (h) {
-      cur = h[1];
-      if (!cols[cur]) cols[cur] = [];
-      continue;
-    }
-    const item = line.match(/^\s*[-*]\s+(?:\[[ xX]\]\s+)?(.+?)\s*$/);
-    if (item && cur) cols[cur].push(item[1]);
+    if (h) { sec = { title: h[1], notes: [], items: [] }; sections.push(sec); item = null; continue; }
+    if (!sec) { pre.push(line); continue; }
+    const it = line.match(ITEM);
+    if (it) { item = { text: it[2], box: it[1] || '', children: [] }; sec.items.push(item); continue; }
+    if (item && (/^\s+\S/.test(line) || line.trim() === '')) { item.children.push(line); continue; }
+    item = null;
+    sec.notes.push(line);
   }
+  return { pre, sections };
+}
+
+export function parseRoadmap(md) {
+  const cols = Object.fromEntries(COLUMNS.map(c => [c, []]));
+  for (const s of parseFull(md).sections) cols[s.title] = [...(cols[s.title] || []), ...s.items.map(i => i.text)];
   return cols;
 }
 
+// Schreibt nur die Karten neu; Notizen, Unterpunkte und Vorspann bleiben erhalten.
 export function writeRoadmap(dir, cols) {
   const p = brainPaths(dir);
   fs.mkdirSync(path.dirname(p.roadmap), { recursive: true });
-  const md = '# Roadmap\n\n' + Object.entries(cols)
-    .map(([c, items]) => `## ${c}\n${items.map(i => `- ${i.replace(/\n/g, ' ')}`).join('\n')}${items.length ? '\n' : ''}`)
-    .join('\n');
+  const old = parseFull(fs.existsSync(p.roadmap) ? fs.readFileSync(p.roadmap, 'utf8') : '');
+  const byText = new Map();
+  for (const s of old.sections) for (const i of s.items) if (!byText.has(i.text)) byText.set(i.text, i);
+  const notesOf = Object.fromEntries(old.sections.map(s => [s.title, s.notes]));
+  const trim = (lines) => { const l = [...lines]; while (l.length && !l[l.length - 1].trim()) l.pop(); while (l.length && !l[0].trim()) l.shift(); return l; };
+  const pre = trim(old.pre);
+  let md = (pre.length ? pre.join('\n') : '# Roadmap') + '\n\n';
+  md += Object.entries(cols).map(([c, items]) => {
+    const notes = trim(notesOf[c] || []);
+    const lines = items.map(t => {
+      const text = String(t).replace(/\n/g, ' ');
+      const o = byText.get(text);
+      byText.delete(text);
+      return [`- ${o?.box || ''}${text}`, ...trim(o?.children || [])].join('\n');
+    });
+    return [`## ${c}`, ...(notes.length ? [...notes, ''] : []), ...lines].join('\n');
+  }).join('\n\n') + '\n';
   fs.writeFileSync(p.roadmap, md);
 }
 

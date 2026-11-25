@@ -80,6 +80,7 @@ export async function mcpList(cwd) {
 
 export async function mcpAdd({ name, target, transport = 'http', scope = 'user', headers = [], env = [] }, cwd) {
   if (!/^[\w.-]{1,64}$/.test(name || '')) throw new Error('Name nur aus Buchstaben, Ziffern, -, _ und .');
+  if (name.toLowerCase() === 'flint') throw new Error('Der Name „flint“ ist für Flints eigene Werkzeuge reserviert.');
   if (!target) throw new Error('URL bzw. Befehl fehlt.');
   const args = ['mcp', 'add', '--scope', scope];
   if (transport === 'http' || transport === 'sse') {
