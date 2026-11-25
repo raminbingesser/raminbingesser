@@ -50,6 +50,16 @@ export function mockQuery({ prompt, options }) {
 
   async function* gen() {
     yield { ...base, type: 'system', subtype: 'init', cwd: options.cwd, tools: [], model: options.model };
+    if (/frage/i.test(prompt) && options.canUseTool) {
+      const input = { questions: [{ question: 'Welche Diagrammart möchtest du?', header: 'Diagramm', multiSelect: false, options: [
+        { label: 'Linien', description: 'Verlauf über Zeit' }, { label: 'Balken', description: 'Monate vergleichen' }, { label: 'Fläche', description: 'Volumen betonen' }] }] };
+      const res = await options.canUseTool('AskUserQuestion', input, { signal, suggestions: [] });
+      const ans = res.behavior === 'allow' ? Object.values(res.updatedInput.answers || {})[0] : 'keine Antwort';
+      const t = `Alles klar, ich nehme: **${ans}**. (Demo-Modus)`;
+      yield assistant([{ type: 'text', text: t }]);
+      yield { ...base, type: 'result', subtype: 'success', is_error: false, result: t, total_cost_usd: 0, duration_ms: 900, num_turns: 1, usage: {} };
+      return;
+    }
     const intro = `Alles klar. (Demo-Modus, Claude wird nicht aufgerufen.) Ich baue dir dazu ein kleines Dashboard in \`dashboard/index.html\`.`;
     for (const word of intro.split(/(?<= )/)) {
       await sleep(35, signal);

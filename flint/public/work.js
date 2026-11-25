@@ -163,10 +163,11 @@ function Preview({ pid }) {
   // iOS-Simulator: laufend Screenshots holen
   useEffect(() => {
     if (pv.mode !== 'sim') return;
-    let alive = true, timer, lastUrl = null;
-    api('GET', '/simulator/status').then(st => alive && setSim(s => ({ ...s, status: st }))).catch(() => { });
+    let alive = true, timer, lastUrl = null, available = null;
+    api('GET', '/simulator/status').then(st => { available = st.available; if (alive) setSim(s => ({ ...s, status: st })); }).catch(() => { available = false; }).finally(() => tick());
     const tick = async () => {
       if (!alive) return;
+      if (available === false) { timer = setTimeout(tick, 5000); return; }
       if (!document.hidden && S.tab === 'preview' && !sel) {
         try {
           const r = await fetch('/api/simulator/screenshot?t=' + Date.now(), { headers: { 'x-flint-token': window.FLINT_TOKEN } });
@@ -181,7 +182,6 @@ function Preview({ pid }) {
       }
       timer = setTimeout(tick, 1200);
     };
-    tick();
     return () => { alive = false; clearTimeout(timer); };
   }, [pv.mode, pid, !!sel]);
 
@@ -228,7 +228,7 @@ function Preview({ pid }) {
 
   return html`<div class="pane">
     <div class="toolbar">
-      <select class="mini" style="max-width:200px" value=${pv.mode === 'file' ? 'f:' + pv.file : pv.mode === 'url' ? 'u' : pv.mode === 'sim' ? 's' : ''}
+      <select class="mini" style="max-width:260px;font-weight:600;color:var(--ink)" value=${pv.mode === 'file' ? 'f:' + pv.file : pv.mode === 'url' ? 'u' : pv.mode === 'sim' ? 's' : ''}
         onChange=${(e) => { const v = e.target.value; setSel(null); if (v.startsWith('f:')) setPreview(pid, { mode: 'file', file: v.slice(2) }); else if (v === 'u') setPreview(pid, { mode: 'url' }); else if (v === 's') setPreview(pid, { mode: 'sim' }); }}>
         <option value="" disabled>Quelle wählen…</option>
         ${htmlFiles.length > 0 && html`<optgroup label="Projektdateien">${htmlFiles.map(f => html`<option value=${'f:' + f.path}>${f.path}</option>`)}</optgroup>`}
@@ -236,11 +236,12 @@ function Preview({ pid }) {
         <option value="u">Adresse (localhost / Web)</option>
         <option value="s">iOS-Simulator</option>
       </select>
-      ${pv.mode !== 'sim' && html`<div class="urlbar">
+      ${pv.mode !== 'sim' && pv.mode !== 'file' && html`<div class="urlbar">
         <input value=${pv.mode === 'file' ? pv.file : urlInput} placeholder="localhost:5173 oder dashboard/index.html"
           onInput=${(e) => setUrlInput(e.target.value)} onFocus=${(e) => { if (pv.mode === 'file') setUrlInput(pv.file); e.target.select(); }}
           onKeyDown=${(e) => { if (e.key === 'Enter') go(); }} />
       </div>`}
+      ${pv.mode === 'file' && html`<span class="grow"></span>`}
       ${pv.mode === 'sim' && html`<span class="grow muted small">${sim.status?.booted?.length ? sim.status.booted.join(', ') : 'iOS-Simulator'}</span>`}
       <button class=${'btn sm' + (pv.edit ? ' primary' : '')} title="Klick auf ein Element und sag, was sich ändern soll (Esc beendet)" disabled=${!pv.mode}
         onClick=${() => setPreview(pid, { edit: !pv.edit })}>✎ ${pv.edit ? 'Ändern aktiv' : 'Ändern'}</button>

@@ -48,7 +48,7 @@ onMessage((m) => {
     }
     case 'perm:request': {
       const r = rt(m.sid);
-      set({ runtime: { ...S.runtime, [m.sid]: { ...r, pending: [...(r.pending || []).filter(p => p.reqId !== m.reqId), { reqId: m.reqId, toolName: m.toolName, input: m.input }] } } });
+      set({ runtime: { ...S.runtime, [m.sid]: { ...r, pending: [...(r.pending || []).filter(p => p.reqId !== m.reqId), { reqId: m.reqId, toolName: m.toolName, input: m.input, questions: m.questions }] } } });
       break;
     }
     case 'perm:resolved': {

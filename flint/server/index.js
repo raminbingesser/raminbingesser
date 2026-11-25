@@ -297,7 +297,7 @@ api.post('/sessions/:sid/prompt', wrap((req) => {
 }));
 api.post('/sessions/:sid/interrupt', wrap((req) => agents.interrupt(req.params.sid)));
 api.post('/sessions/:sid/queue/:item', wrap((req) => agents.queueAction(req.params.sid, req.params.item, req.body.action)));
-api.post('/sessions/:sid/permission/:req', wrap((req) => agents.answerPermission(req.params.sid, req.params.req, req.body.decision)));
+api.post('/sessions/:sid/permission/:req', wrap((req) => agents.answerPermission(req.params.sid, req.params.req, req.body.decision, req.body.answers)));
 
 api.get('/projects/:pid/files', wrap((req) => files.listDir(project(req).path, req.query.path || '')));
 api.get('/projects/:pid/file', wrap((req) => files.readFile(project(req).path, req.query.path)));

@@ -102,7 +102,7 @@ export function snapshot() {
     out[sid] = {
       status: r.status,
       queue: r.queue,
-      pending: [...r.pending.entries()].map(([reqId, p]) => ({ reqId, toolName: p.toolName, input: p.input })),
+      pending: [...r.pending.entries()].map(([reqId, p]) => ({ reqId, toolName: p.toolName, input: p.input, questions: p.questions })),
     };
   }
   return out;
@@ -167,12 +167,13 @@ export async function interrupt(sid) {
   try { await r.query?.interrupt(); } catch { r.abort?.abort(); }
 }
 
-export function answerPermission(sid, reqId, decision) {
+export function answerPermission(sid, reqId, decision, answers) {
   const r = runtime(sid);
   const p = r.pending.get(reqId);
   if (!p) return;
   r.pending.delete(reqId);
-  if (decision === 'deny') p.resolve({ behavior: 'deny', message: 'Der Mensch hat das abgelehnt. Frag nach, was stattdessen gewünscht ist.' });
+  if (decision === 'answer') p.resolve({ behavior: 'allow', updatedInput: { ...p.rawInput, answers: answers || {} } });
+  else if (decision === 'deny') p.resolve({ behavior: 'deny', message: 'Der Mensch hat das abgelehnt. Frag nach, was stattdessen gewünscht ist.' });
   else p.resolve({ behavior: 'allow', updatedInput: p.rawInput, ...(decision === 'always' && p.suggestions ? { updatedPermissions: p.suggestions } : {}) });
   record(sid, { type: 'permission', toolName: p.toolName, decision });
   emit({ type: 'perm:resolved', sid, reqId });
@@ -231,9 +232,10 @@ async function runTurn(sid, text) {
       if (toolName.startsWith('mcp__flint__')) return resolve({ behavior: 'allow', updatedInput: input });
       const reqId = store.id();
       const shown = clip(JSON.stringify(input, null, 2), 3000);
-      r.pending.set(reqId, { resolve, toolName, input: shown, rawInput: input, suggestions });
+      const questions = toolName === 'AskUserQuestion' && Array.isArray(input?.questions) ? input.questions : undefined;
+      r.pending.set(reqId, { resolve, toolName, input: shown, rawInput: input, suggestions, questions });
       setStatus(sid, 'waiting');
-      emit({ type: 'perm:request', sid, reqId, toolName, input: shown });
+      emit({ type: 'perm:request', sid, reqId, toolName, input: shown, questions });
       signal?.addEventListener('abort', () => {
         if (r.pending.delete(reqId)) {
           resolve({ behavior: 'deny', message: 'Abgebrochen.' });

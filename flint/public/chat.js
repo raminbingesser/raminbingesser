@@ -63,7 +63,43 @@ function ToolCall({ ev, result, running, root }) {
   </div>`;
 }
 
+// Rückfrage von Claude mit Auswahlmöglichkeiten (AskUserQuestion)
+function Questions({ sid, p }) {
+  const [sel, setSel] = useState({});
+  const [other, setOther] = useState({});
+  const qs = p.questions || [];
+  const toggle = (q, label) => {
+    const cur = sel[q.question] || [];
+    const next = q.multiSelect ? (cur.includes(label) ? cur.filter(x => x !== label) : [...cur, label]) : [label];
+    setSel({ ...sel, [q.question]: next });
+  };
+  const answers = Object.fromEntries(qs.map(q => {
+    const picked = [...(sel[q.question] || [])];
+    if (other[q.question]?.trim()) picked.push(other[q.question].trim());
+    return [q.question, picked.join(', ')];
+  }));
+  const complete = qs.every(q => answers[q.question]);
+  const send = () => safe(() => api('POST', `/sessions/${sid}/permission/${p.reqId}`, { decision: 'answer', answers }));
+  return html`<div class="perm" style="border-color:var(--info);background:rgba(77,171,247,.06)">
+    <div class="perm-title"><span style="color:var(--info)">?</span> Claude hat eine Rückfrage</div>
+    ${qs.map(q => html`<div style="margin-bottom:10px">
+      ${q.header && html`<div class="qtag" style="margin-bottom:2px">${q.header}</div>`}
+      <div style="font-weight:600;margin-bottom:6px">${q.question}</div>
+      <div style="display:grid;gap:5px">${q.options.map(o => {
+        const on = (sel[q.question] || []).includes(o.label);
+        return html`<button class=${'btn' + (on ? ' on' : '')} style="justify-content:flex-start;text-align:left;white-space:normal" onClick=${() => toggle(q, o.label)}>
+          <span><b>${o.label}</b>${o.description ? html`<span class="muted small"> · ${o.description}</span>` : ''}</span></button>`;
+      })}
+        <input class="field" placeholder="Andere Antwort…" value=${other[q.question] || ''} onInput=${(e) => setOther({ ...other, [q.question]: e.target.value })} />
+      </div>
+    </div>`)}
+    <div class="row"><button class="btn primary sm" disabled=${!complete} onClick=${send}>Antworten</button>
+      <button class="btn sm" onClick=${() => safe(() => api('POST', `/sessions/${sid}/permission/${p.reqId}`, { decision: 'deny' }))}>Überspringen</button></div>
+  </div>`;
+}
+
 function Permission({ sid, p }) {
+  if (p.questions?.length) return html`<${Questions} sid=${sid} p=${p} />`;
   const answer = (decision) => safe(() => api('POST', `/sessions/${sid}/permission/${p.reqId}`, { decision }));
   return html`<div class="perm">
     <div class="perm-title"><span style="color:var(--warn)">●</span> Claude möchte: ${toolName(p.toolName)}</div>
@@ -111,7 +147,7 @@ function Messages({ sid }) {
       if (e.type === 'tool_use') return html`<${ToolCall} key=${i} ev=${e} result=${results[e.id]} running=${running} root=${root} />`;
       if (e.type === 'result') return html`<div class="result-line" key=${i}>${e.isError ? html`<span class="st-err">Fehler</span>` : 'fertig'} · ${fmtDur(e.durationMs)}${e.costUsd ? ` · ≈ $${e.costUsd.toFixed(2)}` : ''}</div>${e.isError && e.message ? html`<div class="err-box">${e.message}</div>` : null}`;
       if (e.type === 'error') return html`<div class="err-box" key=${i}>${e.message}</div>`;
-      if (e.type === 'permission') return html`<div class="perm-note" key=${i}>${e.decision === 'deny' ? '✕ abgelehnt' : '✓ erlaubt'}: ${toolName(e.toolName)}</div>`;
+      if (e.type === 'permission') return html`<div class="perm-note" key=${i}>${e.decision === 'deny' ? '✕ abgelehnt' : e.decision === 'answer' ? '✓ beantwortet' : '✓ erlaubt'}: ${toolName(e.toolName)}</div>`;
       return null;
     })}
     ${delta && html`<div class="msg assistant"><div class="md typing" dangerouslySetInnerHTML=${{ __html: md(delta) }}></div></div>`}
@@ -292,15 +328,18 @@ function Header({ s }) {
   const r = rt(s.id);
   const patch = (k, v) => safe(() => api('PATCH', `/sessions/${s.id}`, { [k]: v }));
   const u = s.usage || {};
-  return html`<div class="chat-head">
-    ${!S.showSide && html`<button class="icon-btn" title="Seitenleiste" onClick=${() => { set({ showSide: true }); persist(); }}><${Icon} n="side" /></button>`}
-    <span class=${'dot ' + r.status}></span>
-    ${edit
-      ? html`<span class="chat-title"><input ref=${(el) => el && setTimeout(() => el.focus(), 0)} value=${s.title} onBlur=${(e) => { setEdit(false); patch('title', e.target.value || s.title); }} onKeyDown=${(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setEdit(false); }} /></span>`
-      : html`<span class="chat-title" title="Umbenennen" onClick=${() => setEdit(true)}>${s.title}</span>`}
-    <span class="crumb">${p?.name}${s.parentId ? ' · Helfer' : ''}</span>
-    <span class="spacer"></span>
-    <div class="chips">
+  return html`<div class="chat-head two">
+    <div class="row" style="width:100%;min-width:0">
+      ${!S.showSide && html`<button class="icon-btn" title="Seitenleiste" onClick=${() => { set({ showSide: true }); persist(); }}><${Icon} n="side" /></button>`}
+      <span class=${'dot ' + r.status}></span>
+      ${edit
+        ? html`<span class="chat-title"><input ref=${(el) => el && setTimeout(() => el.focus(), 0)} value=${s.title} onBlur=${(e) => { setEdit(false); patch('title', e.target.value || s.title); }} onKeyDown=${(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setEdit(false); }} /></span>`
+        : html`<span class="chat-title" title="Umbenennen" onClick=${() => setEdit(true)}>${s.title}</span>`}
+      <span class="crumb">${p?.variantName ? `${project(p.variantOf)?.name} · ${p.variantName}` : p?.name}${s.parentId ? ' · Helfer' : ''}</span>
+      <span class="spacer"></span>
+      <button class=${'icon-btn' + (S.showWork ? ' on' : '')} title=${`Arbeitsbereich ein/aus (${mod}J)`} onClick=${() => { set({ showWork: !S.showWork }); persist(); }}><${Icon} n="panel" /></button>
+    </div>
+    <div class="row" style="width:100%;min-width:0;gap:2px;margin-left:-4px">
       <select class="mini" title="Modell (wirkt ab der nächsten Nachricht)" value=${s.model} onChange=${(e) => patch('model', e.target.value)}>
         ${MODELS.map(([v, l]) => html`<option value=${v}>${l}</option>`)}
       </select>
@@ -310,9 +349,9 @@ function Header({ s }) {
       <select class="mini" title="Was darf Claude ohne Nachfrage?" value=${s.permissionMode} onChange=${(e) => patch('permissionMode', e.target.value)}>
         ${PERMS.map(([v, l]) => html`<option value=${v}>${l}</option>`)}
       </select>
+      <span class="spacer"></span>
+      <span class="usage" title="Verbrauch dieser Sitzung. Mit Claude-Abo zahlst du nichts extra; der Dollarwert ist nur der rechnerische API-Wert.">${fmtTokens((u.inputTokens || 0) + (u.outputTokens || 0))} Tok.${u.costUsd ? ` · ≈ $${u.costUsd.toFixed(2)}` : ''}</span>
     </div>
-    <span class="usage" title="Verbrauch dieser Sitzung. Mit Claude-Abo zahlst du nichts extra; der Dollarwert ist nur der rechnerische API-Wert.">${fmtTokens((u.inputTokens || 0) + (u.outputTokens || 0))} Tok.${u.costUsd ? ` · ≈ $${u.costUsd.toFixed(2)}` : ''}</span>
-    <button class=${'icon-btn' + (S.showWork ? ' on' : '')} title=${`Arbeitsbereich ein/aus (${mod}J)`} onClick=${() => { set({ showWork: !S.showWork }); persist(); }}><${Icon} n="panel" /></button>
   </div>`;
 }
 
