@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flint</title>
+<meta name="theme-color" content="#0f0f10">
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="stylesheet" href="/vendor/xterm.css">
+<link rel="stylesheet" href="/static/style.css">
+<script>window.FLINT_TOKEN = "__FLINT_TOKEN__";</script>
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script type="importmap">
+{ "imports": {
+  "preact": "/vendor/preact.js",
+  "preact/hooks": "/vendor/hooks.js",
+  "htm": "/vendor/htm.js",
+  "marked": "/vendor/marked.js",
+  "dompurify": "/vendor/purify.js"
+} }
+</script>
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+{
+  "name": "flint",
+  "version": "0.1.0",
+  "description": "Flint – deine lokale KI-Werkstatt: mehrere Claude-Agenten parallel in deinen Projektordnern, mit Terminal, Live-Vorschau, Dateien, Projekt-Brain und Schlüsseltresor.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "flint": "server/index.js"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "demo": "FLINT_MOCK=1 node server/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.332",
+    "@lydell/node-pty": "^1.1.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "dompurify": "^3.5.0",
+    "express": "^4.21.2",
+    "htm": "^3.1.1",
+    "marked": "^15.0.0",
+    "open": "^10.1.0",
+    "preact": "^10.26.0",
+    "ws": "^8.18.0",
+    "zod": "^4.6.7"
+  }
+}
