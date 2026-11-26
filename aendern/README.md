@@ -28,12 +28,12 @@ bash /tmp/aendern-src/aendern/install.sh
 
 Das Skript:
 - installiert den Skill nach `~/.claude/skills/aendern` (gilt für die Claude Desktop App und Claude Code im Terminal),
-- legt die Chrome-Erweiterung nach `~/Library/Application Support/Aendern/chrome-erweiterung` und öffnet den Ordner.
+- legt die Chrome-Erweiterung in den sichtbaren Ordner `~/Aendern-Erweiterung` und öffnet deinen Benutzerordner im Finder.
 
 Dann in Chrome:
 1. Adresse **`chrome://extensions`** öffnen.
 2. Oben rechts **Entwicklermodus** einschalten.
-3. **„Entpackte Erweiterung laden“** → den Ordner wählen (im Dialog ⌘⇧G drücken und den Pfad einfügen, er liegt schon in der Zwischenablage).
+3. **„Entpackte Erweiterung laden“** → im Dialog links auf deinen **Benutzernamen** (oder ⌘⇧H) → Ordner **`Aendern-Erweiterung`** einmal anklicken → **„Auswählen“**. Alternativ den Ordner aus dem Finder direkt in den Dialog ziehen. Den Ordner danach nicht löschen.
 4. Optional: Auf das Puzzle-Symbol klicken und „Ändern“ anpinnen.
 
 Laufende Tabs mit deiner App einmal neu laden, dann erscheint das ✎.
@@ -43,6 +43,6 @@ Laufende Tabs mit deiner App einmal neu laden, dann erscheint das ✎.
 ## Deinstallieren
 
 ```bash
-rm -rf ~/.claude/skills/aendern ~/.claude/aendern "$HOME/Library/Application Support/Aendern"
+rm -rf ~/.claude/skills/aendern ~/.claude/aendern ~/Aendern-Erweiterung
 ```
 und in `chrome://extensions` die Erweiterung „Ändern – für Claude“ entfernen.

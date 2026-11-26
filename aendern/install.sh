@@ -4,8 +4,8 @@
 set -e
 SRC="$(cd "$(dirname "$0")" && pwd)"
 SKILL_DIR="$HOME/.claude/skills/aendern"
-EXT_DIR="$HOME/Library/Application Support/Aendern/chrome-erweiterung"
-[ "$(uname)" = "Darwin" ] || EXT_DIR="$HOME/.local/share/aendern/chrome-erweiterung"
+# Sichtbarer Ordner im Benutzerordner, damit er im Chrome-Dialog leicht zu finden ist
+EXT_DIR="$HOME/Aendern-Erweiterung"
 
 echo "▲ Installiere „Ändern“…"
 mkdir -p "$SKILL_DIR" "$EXT_DIR"
@@ -22,11 +22,11 @@ echo
 echo "Jetzt noch die Erweiterung in Chrome laden (einmalig):"
 echo "  1. In Chrome die Adresse  chrome://extensions  öffnen"
 echo "  2. Oben rechts „Entwicklermodus“ einschalten"
-echo "  3. „Entpackte Erweiterung laden“ → diesen Ordner wählen:"
-echo "     $EXT_DIR"
-echo "     (Der Ordner wurde gerade im Finder geöffnet. Im Auswahldialog: ⌘⇧G und den Pfad einfügen.)"
+echo "  3. „Entpackte Erweiterung laden“ → im Dialog links auf deinen Benutzernamen (oder ⌘⇧H)"
+echo "     → Ordner „Aendern-Erweiterung“ einmal anklicken → „Auswählen“"
+echo "     (Oder den Ordner aus dem eben geöffneten Finder-Fenster in den Dialog ziehen.)"
+echo "  Den Ordner danach nicht löschen: Chrome lädt die Erweiterung von dort."
 echo
 echo "Danach: Auf deiner App (localhost) unten rechts ✎ → Element anklicken → Wunsch → Enter."
 echo "In der Claude Desktop App: /aendern"
-[ "$(uname)" = "Darwin" ] && open "$EXT_DIR" 2>/dev/null || true
-printf "%s" "$EXT_DIR" | pbcopy 2>/dev/null && echo "(Pfad ist in der Zwischenablage.)" || true
+[ "$(uname)" = "Darwin" ] && open "$HOME" 2>/dev/null || true
