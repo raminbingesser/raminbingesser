@@ -2,7 +2,7 @@ import { render } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import {
   html, S, set, useStore, api, safe, toast, connect, onMessage, loadEvents, persist, rt,
-  selectSession, selectProject, newSession, sessionsOf, project, notify, mod, isMac,
+  selectSession, selectProject, newSession, sessionsOf, project, notify, mod, isMac, restartFlint,
 } from './core.js';
 import { Icon } from './icons.js';
 import { Chat } from './chat.js';
@@ -303,6 +303,8 @@ function App() {
         </div>`
       : html`<div class="main no-work" ref=${mainRef}><${Welcome} /></div>`}
     ${!S.connected && html`<div class="toasts"><div class="toast err">Verbindung zu Flint unterbrochen. Läuft Flint noch? Ich verbinde neu…</div></div>`}
+    ${S.stale && html`<div class="stale-bar"><${Icon} n="refresh" /> <span class="grow">${S.restarting ? 'Flint startet neu…' : 'Flint wurde aktualisiert, läuft aber noch in der alten Version.'}</span>
+      ${!S.restarting && html`<button class="btn sm primary" onClick=${() => restartFlint()}>Jetzt neu starten</button>`}</div>`}
     <div class="toasts">${S.toasts.map(t => html`<div class=${'toast ' + t.kind} key=${t.id}>${t.text}</div>`)}</div>
     <${Modals} />
   </div>`;

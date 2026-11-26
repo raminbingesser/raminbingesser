@@ -8,11 +8,21 @@ import path from 'node:path';
 import * as store from './store.js';
 
 const HOME = os.homedir();
-const ROOTS = ['Flint', 'Projects', 'Projekte', 'projects', 'Developer', 'Code', 'code', 'dev', 'Dev', 'GitHub', 'github',
-  'repos', 'Repos', 'workspace', 'Sites', 'Documents', 'Desktop', 'Dokumente', 'Schreibtisch', 'Apps', 'apps']
-  .map(d => path.join(HOME, d));
-const SKIP = new Set(['node_modules', 'Library', 'Applications', 'Pictures', 'Music', 'Movies', 'Photos Library.photoslibrary',
-  'dist', 'build', 'vendor', 'Pods', 'DerivedData', '__pycache__', 'venv', '.venv', 'target']);
+// Diese Ordner im Home zuerst durchsuchen, danach alle übrigen.
+const PREFERRED = ['Flint', 'Projects', 'Projekte', 'projects', 'Developer', 'Code', 'code', 'dev', 'Dev', 'GitHub', 'github',
+  'repos', 'Repos', 'workspace', 'Claude', 'Sites', 'Apps', 'apps', 'Desktop', 'Documents', 'Dokumente', 'Schreibtisch'];
+const SKIP = new Set(['node_modules', 'Library', 'Applications', 'Pictures', 'Music', 'Movies', 'Public', 'Photos Library.photoslibrary',
+  'dist', 'build', 'vendor', 'Pods', 'DerivedData', '__pycache__', 'venv', '.venv', 'target', 'bin']);
+// Cloud-Ordner nicht durchsuchen (würde Downloads auslösen).
+const SKIP_PREFIX = ['Creative Cloud Files', 'OneDrive', 'Google Drive', 'iCloud'];
+const skipName = (e) => e.startsWith('.') || SKIP.has(e) || SKIP_PREFIX.some(p => e.startsWith(p));
+function homeRoots() {
+  let all = [];
+  try { all = fs.readdirSync(HOME).filter(e => !skipName(e) && safeStat(path.join(HOME, e))?.isDirectory()); } catch { }
+  const first = PREFERRED.filter(e => all.includes(e));
+  const rest = all.filter(e => !first.includes(e)).sort((a, b) => (a === 'Downloads') - (b === 'Downloads') || a.localeCompare(b));
+  return [...first, ...rest].map(e => path.join(HOME, e));
+}
 const MARKERS = ['.git', 'package.json', 'index.html', 'CLAUDE.md', 'pyproject.toml', 'requirements.txt', 'Package.swift', 'brain', 'Cargo.toml', 'go.mod'];
 
 const norm = (s) => String(s || '').toLowerCase()
@@ -99,19 +109,20 @@ export function scan(force = false) {
   const deadline = Date.now() + 2500;
   let visited = 0;
   const walk = (dir, depth) => {
-    if (depth > 3 || visited > 6000 || Date.now() > deadline) return;
+    if (depth > 4 || visited > 8000 || Date.now() > deadline) return;
     let entries;
     try { entries = fs.readdirSync(dir); } catch { return; }
     visited++;
     if (depth > 0 && isProject(dir, entries)) { add(dir); return; }
     for (const e of entries) {
-      if (e.startsWith('.') || SKIP.has(e)) continue;
+      if (skipName(e)) continue;
       const p = path.join(dir, e);
       const st = safeStat(p);
       if (st?.isDirectory()) walk(p, depth + 1);
     }
   };
-  for (const r of ROOTS) if (safeStat(r)?.isDirectory()) walk(r, 0);
+  // Ordner direkt im Home können selbst Projekte sein (z. B. ~/myfinance).
+  for (const r of homeRoots()) walk(r, 0.5);
 
   const list = [];
   for (const [p, info] of found) {

@@ -76,8 +76,30 @@ export async function api(method, url, body) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const j = await r.json().catch(() => ({}));
+  if (r.status === 404 && !j.error) {
+    // Route unbekannt: Der laufende Server ist älter als die Oberfläche (nach einem Update).
+    set({ stale: true });
+    throw new Error('Diese Funktion kennt der laufende Flint noch nicht. Bitte Flint neu starten (Hinweis oben).');
+  }
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;
+}
+
+// Läuft der Server noch in einer alten Version? (/health fehlt = sehr alte Version)
+export async function checkStale() {
+  try {
+    const r = await fetch('/health', { cache: 'no-store' });
+    const j = r.ok ? await r.json() : null;
+    set({ stale: !j || !!j.stale });
+  } catch { }
+}
+
+// Neustart; ältere Server ohne /api/restart werden beendet und müssen neu geöffnet werden.
+export async function restartFlint() {
+  const r = await fetch('/api/restart', { method: 'POST', headers: { 'x-flint-token': TOKEN } }).catch(() => null);
+  if (r?.ok) { set({ restarting: true }); return; }
+  await fetch('/api/shutdown', { method: 'POST', headers: { 'x-flint-token': TOKEN } }).catch(() => null);
+  document.body.innerHTML = '<div style="display:grid;place-items:center;height:100vh;font-family:system-ui;color:#999;text-align:center;padding:24px">Flint wurde beendet.<br>Öffne Flint jetzt einfach wieder (Dock oder Launchpad), dann läuft die neue Version.</div>';
 }
 
 export function toast(text, kind = '') {
@@ -132,6 +154,7 @@ export async function loadState() {
   set({ ready: true, projects: st.projects, sessions, runtime: st.runtime, settings: st.settings, info: st, activePid, activeSid, events: {} });
   if (activeSid) loadEvents(activeSid);
   api('GET', '/claude/status').then(c => set({ claude: c })).catch(() => { });
+  checkStale();
 }
 
 export async function loadEvents(sid) {

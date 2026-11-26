@@ -31,6 +31,20 @@ const TOKEN = crypto.randomBytes(24).toString('hex');
 const PTOKEN = crypto.randomBytes(16).toString('hex');
 const MOCK = process.env.FLINT_MOCK === '1';
 
+// Stand des Server-Codes beim Start. Ändert er sich (Update), weiß die Oberfläche,
+// dass ein Neustart nötig ist.
+const codeStamp = () => {
+  let t = 0;
+  for (const d of ['server', '.']) {
+    for (const f of fs.readdirSync(path.join(ROOT, d))) {
+      if (!/\.(js|json)$/.test(f)) continue;
+      try { t = Math.max(t, fs.statSync(path.join(ROOT, d, f)).mtimeMs); } catch { }
+    }
+  }
+  return t;
+};
+const BOOT_STAMP = codeStamp();
+
 // ---- WebSocket-Verteiler --------------------------------------------------
 const clients = new Set();
 function broadcast(msg) {
@@ -98,6 +112,9 @@ app.get('/', (_req, res) => {
   res.set('Cache-Control', 'no-store').type('html').send(html);
 });
 app.use('/static', express.static(PUBLIC, { index: false }));
+
+// Ohne Token: verrät nur, ob der laufende Server älter ist als der Code auf der Platte.
+app.get('/health', (_req, res) => res.set('Cache-Control', 'no-store').json({ ok: true, stale: codeStamp() > BOOT_STAMP }));
 
 // API: verlangt den Token im Header (fremde Webseiten können ihn nicht lesen).
 const api = express.Router();

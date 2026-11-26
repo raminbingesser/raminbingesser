@@ -343,3 +343,7 @@ label.lbl { display: block; font-size: 12px; color: var(--muted); margin: 10px 0
 .datatable th { position: sticky; top: 0; background: var(--panel-2); text-align: left; font-weight: 650; }
 .datatable th, .datatable td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 4px 8px; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
 .datatable tr:hover td { background: var(--panel-2); }
+
+/* Hinweis: Server läuft noch in alter Version */
+.stale-bar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 70; display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: 8px 10px 8px 14px; box-shadow: var(--shadow); font-size: 13px; max-width: calc(100vw - 32px); }
+.stale-bar svg { width: 15px; height: 15px; color: var(--accent-2); }
