@@ -124,6 +124,7 @@ export function systemAddendum(project, role) {
     `Du arbeitest in Flint, einer lokalen KI-Werkstatt, im Projekt "${project.name}" (${project.path}).`,
     'Der Mensch sieht neben dem Chat eine Live-Vorschau, ein Terminal und einen Dateibaum.',
     'Wenn du einen Dev-Server startest, nenne die URL (z. B. http://localhost:5173), dann erscheint sie in der Vorschau. Starte lang laufende Server im Hintergrund.',
+    'Soll der Mensch eine bestimmte Seite oder einen Modus sehen (z. B. /dashboard?demo), nenne die vollständige lokale Adresse in deiner Antwort; die Vorschau wechselt automatisch dorthin. Öffne dafür keine eigenen Browser-Tabs.',
     'Für einfache Dashboards und Tools reicht oft eine einzelne HTML-Datei (z. B. dashboard/index.html); die Vorschau kann Projektdateien direkt anzeigen.',
     'Schlüssel aus dem Tresor stehen dir als Umgebungsvariablen zur Verfügung. Gib ihre Werte nie aus.',
   ];

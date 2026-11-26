@@ -140,7 +140,18 @@ function Messages({ sid }) {
 
   if (!events) return html`<div class="msgs"><div class="working"><span class="spin"></span> Lade Verlauf…</div></div>`;
   const running = r.status !== 'idle';
-  return html`<div class="msgs" ref=${box} onScroll=${onScroll}>
+  // Links auf lokale Apps (localhost) in der Vorschau öffnen statt im Browser
+  const onLink = (e) => {
+    const a = e.target.closest?.('a[href]');
+    if (!a) return;
+    let u;
+    try { u = new URL(a.getAttribute('href')); } catch { return; }
+    if (!['localhost', '127.0.0.1', '0.0.0.0'].includes(u.hostname)) return;
+    e.preventDefault();
+    setPreview(S.activePid, { mode: 'url', url: u.href, suggest: null, nonce: (previewOf(S.activePid).nonce || 0) + 1 });
+    set({ tab: 'preview', showWork: true }); persist();
+  };
+  return html`<div class="msgs" ref=${box} onScroll=${onScroll} onClick=${onLink}>
     ${events.map((e, i) => {
       if (e.auth && e.type !== 'result' && e.type !== 'user') {
         // Anmeldefehler nur einmal pro Durchgang zeigen, mit Knopf zum Neu-Anmelden

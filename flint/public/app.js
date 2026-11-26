@@ -26,6 +26,8 @@ onMessage((m) => {
       const list = S.events[m.sid];
       if (list) set({ events: { ...S.events, [m.sid]: [...list, m.event] } });
       if (m.event.type === 'text' || m.event.type === 'tool_use') set({ deltas: { ...S.deltas, [m.sid]: '' } });
+      // Erfolgreiche Antwort nach einem Anmeldefehler: Status wieder auffrischen
+      if (m.event.type === 'result' && !m.event.isError && S.claude && !S.claude.loggedIn) api('GET', '/claude/status').then(c => set({ claude: c })).catch(() => { });
       break;
     }
     case 'session:delta':

@@ -9,6 +9,13 @@ import { Icon } from './icons.js';
 // Vorschau
 // =====================================================================
 const DEVICES = { desktop: null, tablet: [820, 1180], mobile: [390, 844] };
+const sameOrigin = (a, b) => {
+  try {
+    const x = new URL(a), y = new URL(b);
+    const host = (h) => (h === '127.0.0.1' || h === '0.0.0.0' ? 'localhost' : h);
+    return host(x.hostname) === host(y.hostname) && x.port === y.port;
+  } catch { return false; }
+};
 
 // Das kleine Eingabefeld direkt am angeklickten Element.
 const QUICK = ['größer', 'kleiner', 'fetter', 'andere Farbe', 'mehr Abstand', 'entfernen'];
@@ -159,6 +166,11 @@ function Preview({ pid }) {
         }
         if (!cur.mode || cur.waitUrl) {
           showApp(m.url);
+          return;
+        }
+        // Claude nennt eine Seite derselben App (z. B. …/dashboard?demo): direkt dorthin wechseln.
+        if (m.fromText && cur.mode === 'url' && sameOrigin(cur.url, m.url)) {
+          if (cur.url !== m.url) { showApp(m.url); setFlash(f => f + 1); }
           return;
         }
         else if (cur.url !== m.url || cur.mode !== 'url') setPreview(pid, { suggest: m.url });

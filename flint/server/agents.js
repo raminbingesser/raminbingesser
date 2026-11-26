@@ -130,8 +130,9 @@ function record(sid, ev) {
 }
 
 const URL_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d{2,5}[^\s"'`)\]<>]*/g;
-function scanUrls(projectId, text) {
-  for (const m of String(text).matchAll(URL_RE)) emit({ type: 'preview:url', projectId, url: m[0].replace(/[.,;:]+$/, '') });
+// fromText: Claude hat die Adresse in seiner Antwort genannt (nicht nur in einer Werkzeug-Ausgabe)
+function scanUrls(projectId, text, fromText = false) {
+  for (const m of String(text).matchAll(URL_RE)) emit({ type: 'preview:url', projectId, url: m[0].replace(/[.,;:)\]*_]+$/, ''), fromText });
 }
 
 const clip = (s, n) => (s.length > n ? s.slice(0, n) + `\n… (${s.length - n} Zeichen gekürzt)` : s);
@@ -290,7 +291,7 @@ async function runTurn(sid, text) {
         for (const b of m.message?.content || []) {
           if (b.type === 'text' && b.text.trim()) {
             record(sid, { type: 'text', text: b.text, sub });
-            scanUrls(project.id, b.text);
+            scanUrls(project.id, b.text, true);
           } else if (b.type === 'tool_use') {
             record(sid, { type: 'tool_use', id: b.id, name: b.name, input: clip(JSON.stringify(b.input, null, 2), 4000), sub });
           }
