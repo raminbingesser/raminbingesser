@@ -103,7 +103,18 @@ export function send(msg) { if (ws?.readyState === 1) ws.send(JSON.stringify(msg
 export function connect() {
   ws = new WebSocket(`ws://${location.host}/ws?token=${TOKEN}`);
   ws.onopen = async () => { set({ connected: true }); await loadState(); };
-  ws.onclose = () => { set({ connected: false }); setTimeout(connect, 1500); };
+  ws.onclose = () => {
+    set({ connected: false });
+    setTimeout(async () => {
+      // Wurde Flint neu gestartet (neuer Zugangsschlüssel)? Dann Seite neu laden.
+      try {
+        const r = await fetch('/', { cache: 'no-store' });
+        const tok = r.ok && (await r.text()).match(/FLINT_TOKEN = "([0-9a-f]+)"/)?.[1];
+        if (tok && tok !== TOKEN) { location.reload(); return; }
+      } catch { }
+      connect();
+    }, 1500);
+  };
   ws.onmessage = (e) => {
     let m;
     try { m = JSON.parse(e.data); } catch { return; }

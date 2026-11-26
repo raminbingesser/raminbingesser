@@ -447,10 +447,12 @@ function Update() {
     ${st?.error && html`<div class="err-box">${st.error}</div>`}
     ${st && !st.error && !st.done && html`<p>${st.behind > 0 ? html`Es gibt <b>${st.behind}</b> neue Änderung(en).` : 'Flint ist aktuell.'}</p>
       <p class="muted small mono">${st.branch} · ${st.current}</p>`}
-    ${st?.done && html`<p>Aktualisiert. Starte Flint neu (Fenster schließen und Flint wieder öffnen), damit die neue Version läuft.</p><pre class="diff">${st.log}</pre>`}
+    ${st?.done && html`<p>${st.restarting ? 'Flint startet neu… die Seite lädt gleich von selbst.' : 'Aktualisiert. Jetzt neu starten, damit die neue Version läuft.'}</p><pre class="diff">${st.log}</pre>`}
     <div class="modal-foot" style="padding:10px 0 0">
       <button class="btn" onClick=${close}>Schließen</button>
+      ${st?.done && !st.restarting && html`<button class="btn primary" onClick=${() => { setSt({ ...st, restarting: true }); api('POST', '/restart').catch(() => { }); }}><${Icon} n="refresh" /> Jetzt neu starten</button>`}
       ${st && !st.error && !st.done && st.behind > 0 && html`<button class="btn primary" disabled=${busy} onClick=${run}>${busy ? 'Lade…' : 'Jetzt aktualisieren'}</button>`}
+      ${st && !st.error && !st.done && !(st.behind > 0) && html`<button class="btn" onClick=${() => { setSt({ ...st, done: true, restarting: true, log: '' }); api('POST', '/restart').catch(() => { }); }}><${Icon} n="refresh" /> Flint neu starten</button>`}
     </div>
   </${Modal}>`;
 }

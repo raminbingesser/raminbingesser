@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 
 import * as store from './store.js';
@@ -417,6 +417,15 @@ api.get('/update', wrap(async () => {
   try { behind = Number(await gitRoot(['rev-list', '--count', 'HEAD..@{u}'])); } catch { }
   return { branch, current, behind };
 }));
+// Neustart (z. B. nach einem Update): neuen Server starten, sobald dieser beendet ist.
+api.post('/restart', wrap(() => {
+  const log = fs.openSync(path.join(store.HOME, 'flint.log'), 'a');
+  const script = `sleep 1; exec "${process.execPath}" "${path.join(ROOT, 'server', 'index.js')}"`;
+  spawn('/bin/sh', ['-c', script], { cwd: ROOT, detached: true, stdio: ['ignore', log, log], env: { ...process.env, FLINT_NO_OPEN: '1' } }).unref();
+  setTimeout(shutdown, 200);
+  return { ok: true };
+}));
+
 api.post('/update', wrap(async () => {
   const pull = await gitRoot(['pull', '--ff-only']);
   const npm = await new Promise((res) => execFile(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--no-audit', '--no-fund'], { cwd: ROOT, timeout: 600_000 }, (e, out, err) => res(e ? String(err || e.message) : String(out))));
