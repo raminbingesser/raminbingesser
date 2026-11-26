@@ -313,7 +313,7 @@ function Preview({ pid }) {
 
   return html`<div class="pane">
     <div class="toolbar">
-      <select class="mini" style="max-width:260px;font-weight:600;color:var(--ink)" value=${pv.mode === 'file' ? 'f:' + pv.file : pv.mode === 'url' ? 'u' : pv.mode === 'sim' ? 's' : ''}
+      <select class="mini" title="Was die Vorschau zeigt: eine Projektdatei, eine Adresse (laufende App) oder den iOS-Simulator" style="max-width:240px;min-width:90px;flex:0 1 auto;font-weight:600;color:var(--ink)" value=${pv.mode === 'file' ? 'f:' + pv.file : pv.mode === 'url' ? 'u' : pv.mode === 'sim' ? 's' : ''}
         onChange=${(e) => { const v = e.target.value; setSel(null); if (v.startsWith('f:')) setPreview(pid, { mode: 'file', file: v.slice(2) }); else if (v === 'u') setPreview(pid, { mode: 'url' }); else if (v === 's') setPreview(pid, { mode: 'sim' }); }}>
         <option value="" disabled>Quelle wählen…</option>
         ${htmlFiles.length > 0 && html`<optgroup label="Projektdateien">${htmlFiles.map(f => html`<option value=${'f:' + f.path}>${f.path}</option>`)}</optgroup>`}
@@ -331,27 +331,27 @@ function Preview({ pid }) {
       <button class=${'btn sm' + (pv.edit ? ' primary' : '')} title="Klick auf ein Element und sag, was sich ändern soll (Esc beendet)" disabled=${!pv.mode}
         onClick=${() => setPreview(pid, { edit: !pv.edit })}>✎ ${pv.edit ? 'Ändern aktiv' : 'Ändern'}</button>
       ${pv.mode !== 'sim' && html`
-        <button class="icon-btn" title="Neu laden" onClick=${() => reload(false)}><${Icon} n="refresh" /></button>
-        <button class=${'icon-btn' + (pv.auto !== false ? ' on' : '')} title="Automatisch neu laden, wenn Claude Dateien ändert" onClick=${() => setPreview(pid, { auto: pv.auto === false })}><${Icon} n="zap" /></button>
+        <button class="icon-btn" title="Vorschau neu laden" onClick=${() => reload(false)}><${Icon} n="refresh" /></button>
+        <button class=${'icon-btn' + (pv.auto !== false ? ' on' : '')} title="Automatisch neu laden: Vorschau aktualisiert sich, sobald Dateien geändert werden (an/aus)" onClick=${() => setPreview(pid, { auto: pv.auto === false })}><${Icon} n="zap" /></button>
         <span style="width:4px"></span>
-        <button class=${'icon-btn' + ((pv.device || 'desktop') === 'desktop' ? ' on' : '')} title="Desktop" onClick=${() => setPreview(pid, { device: 'desktop' })}><${Icon} n="monitor" /></button>
-        <button class=${'icon-btn' + (pv.device === 'tablet' ? ' on' : '')} title="Tablet" onClick=${() => setPreview(pid, { device: 'tablet' })}><${Icon} n="tablet" /></button>
-        <button class=${'icon-btn' + (pv.device === 'mobile' ? ' on' : '')} title="Handy" onClick=${() => setPreview(pid, { device: 'mobile' })}><${Icon} n="phone" /></button>
-        <button class="icon-btn" title="Im Browser öffnen" onClick=${openExt}><${Icon} n="ext" /></button>`}
+        <button class=${'icon-btn' + ((pv.device || 'desktop') === 'desktop' ? ' on' : '')} title="Ansicht: Desktop" onClick=${() => setPreview(pid, { device: 'desktop' })}><${Icon} n="monitor" /></button>
+        <button class=${'icon-btn' + (pv.device === 'tablet' ? ' on' : '')} title="Ansicht: Tablet (820 px)" onClick=${() => setPreview(pid, { device: 'tablet' })}><${Icon} n="tablet" /></button>
+        <button class=${'icon-btn' + (pv.device === 'mobile' ? ' on' : '')} title="Ansicht: Handy (390 px)" onClick=${() => setPreview(pid, { device: 'mobile' })}><${Icon} n="phone" /></button>
+        <button class="icon-btn" title="In eigenem Browser-Fenster öffnen" onClick=${openExt}><${Icon} n="ext" /></button>`}
       ${run?.server && pv.mode !== 'sim' && (pv.mode !== 'url' || down) && html`<button class="btn sm primary" disabled=${starting}
         title=${`App mit eigenem Server starten: ${run.command}`} onClick=${startApp}>${starting ? html`<span class="spin"></span> Startet…` : html`<${Icon} n="play" /> App starten`}</button>`}
-      <button class="icon-btn" title="Veröffentlichen (Railway)" onClick=${() => set({ modal: { type: 'publish' } })}><${Icon} n="up" /></button>
+      <button class="icon-btn" title="Veröffentlichen: online stellen mit Railway" onClick=${() => set({ modal: { type: 'publish' } })}><${Icon} n="up" /></button>
     </div>
     ${(needsServer || down) && !starting && html`<div class="suggest"><${Icon} n="play" size="14" />
       <span class="grow">${down ? `Die App unter ${pv.url} läuft gerade nicht.` : 'Diese App braucht ihren eigenen Server, eine einfache Datei-Vorschau reicht nicht.'}</span>
       <button class="btn sm primary" onClick=${startApp}>${run?.command ? `▶ Starten (${run.command.replace(/^.*&& /, '')})` : 'Claude soll sie starten'}</button></div>`}
     ${pv.suggest && html`<div class="suggest"><${Icon} n="zap" size="14" /> Server erkannt: <b class="mono">${pv.suggest}</b><span class="spacer"></span>
       <button class="btn sm primary" onClick=${() => { setPreview(pid, { mode: 'url', url: pv.suggest, suggest: null }); setUrlInput(pv.suggest); }}>Anzeigen</button>
-      <button class="icon-btn" onClick=${() => setPreview(pid, { suggest: null })}><${Icon} n="x" /></button></div>`}
+      <button class="icon-btn" title="Hinweis ausblenden" onClick=${() => setPreview(pid, { suggest: null })}><${Icon} n="x" /></button></div>`}
     ${errors.length > 0 && html`<div class="suggest" style="background:rgba(250,82,82,.1)"><span class="st-err">●</span>
       <span class="grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title=${errors.map(e => e.message).join('\n')}>${errors.length} Fehler in der Seite: ${errors[0].message}</span>
       <button class="btn sm primary" onClick=${fixErrors}>Claude beheben lassen</button>
-      <button class="icon-btn" onClick=${() => setErrors([])}><${Icon} n="x" /></button></div>`}
+      <button class="icon-btn" title="Fehler ausblenden" onClick=${() => setErrors([])}><${Icon} n="x" /></button></div>`}
     ${pv.edit && pv.mode === 'url' && proxy && !proxy.proxied && html`<div class="suggest"><${Icon} n="target" size="14" />
       <span class="grow">„Ändern“ per Klick geht bei deinen lokalen Apps (localhost), nicht bei fremden Webseiten.</span></div>`}
     ${pv.edit && !sel && (pv.mode !== 'url' || bridge) && html`<div class="suggest" style="font-size:12px"><${Icon} n="target" size="14" />
@@ -474,7 +474,7 @@ function Terminal({ pid }) {
     <div class="toolbar">
       <div class="subtabs grow">${(list || []).map(t => html`
         <span class=${'subtab' + (t.id === cur ? ' active' : '')} key=${t.id} onClick=${() => set({ activeTerm: { ...(S.activeTerm || {}), [pid]: t.id } })}>
-          ${t.title}<button class="icon-btn" style="width:18px;height:18px" onClick=${(e) => { e.stopPropagation(); close(t.id); }}><${Icon} n="x" size="11" /></button></span>`)}
+          ${t.title}<button class="icon-btn" title="Terminal schließen (beendet, was darin läuft)" style="width:18px;height:18px" onClick=${(e) => { e.stopPropagation(); close(t.id); }}><${Icon} n="x" size="11" /></button></span>`)}
       </div>
       <button class="btn sm" onClick=${() => openTerminal(pid, null, { title: 'Terminal' })}><${Icon} n="plus" /> Terminal</button>
       <button class="btn sm primary" title="Claude Code direkt im Terminal (mit deinem Abo)" onClick=${() => openTerminal(pid, 'claude', { title: 'Claude Code' })}><${Icon} n="spark" /> Claude im Terminal</button>
@@ -733,7 +733,7 @@ function Git({ pid }) {
         ${st.files.map(f => html`<div class="gfile" key=${f.path} onClick=${() => showDiff(f.path)}>
           <span class="s">${f.status}</span><span class="p">${f.path}</span>
           <button class="icon-btn" title="Verwerfen" onClick=${(e) => { e.stopPropagation(); discard(f.path); }}><${Icon} n="trash" /></button></div>`)}
-        ${diff && html`<div><div class="row small muted" style="margin-bottom:4px">${diff.path}<span class="spacer"></span><button class="icon-btn" onClick=${() => setDiff(null)}><${Icon} n="x" /></button></div><${Diff} text=${diff.text} /></div>`}
+        ${diff && html`<div><div class="row small muted" style="margin-bottom:4px">${diff.path}<span class="spacer"></span><button class="icon-btn" title="Änderungsansicht schließen" onClick=${() => setDiff(null)}><${Icon} n="x" /></button></div><${Diff} text=${diff.text} /></div>`}
         ${st.files.length > 0 && html`<div class="row">
           <input class="field grow" placeholder="Was hat sich geändert? (z. B. „Diagramm als Balken“)" value=${msg} onInput=${(e) => setMsg(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter') commit(); }} />
           <button class="btn primary" onClick=${commit}><${Icon} n="save" /> Sichern</button>

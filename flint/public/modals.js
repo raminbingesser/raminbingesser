@@ -19,7 +19,7 @@ function Modal({ title, children, foot, wide, onClose = close }) {
   }, []);
   return html`<div class="overlay" onMouseDown=${(e) => { if (e.target === e.currentTarget) onClose(); }}>
     <div class=${'modal' + (wide ? ' wide' : '')} ref=${box}>
-      <div class="modal-head">${title}<span class="spacer"></span><button class="icon-btn" onClick=${onClose}><${Icon} n="x" /></button></div>
+      <div class="modal-head">${title}<span class="spacer"></span><button class="icon-btn" title="Schließen (Esc)" onClick=${onClose}><${Icon} n="x" /></button></div>
       <div class="modal-body">${children}</div>
       ${foot && html`<div class="modal-foot">${foot}</div>`}
     </div>
@@ -354,7 +354,7 @@ function Vault() {
       ${list.map(s => html`<div class="list-item" key=${s.name}><${Icon} n="key" size="14" /><b class="mono grow">${s.name}</b>
         <span class="muted small">${s.projects ? (s.projects.map(id => S.projects.find(p => p.id === id)?.name || '?').join(', ')) : 'alle Projekte'}</span>
         <span class="mono muted">••••••••</span>
-        <button class="icon-btn" onClick=${async () => { if (confirm(`${s.name} löschen?`)) { await safe(() => api('DELETE', `/vault/${s.name}`)); load(); } }}><${Icon} n="trash" /></button></div>`)}
+        <button class="icon-btn" title="Schlüssel löschen" onClick=${async () => { if (confirm(`${s.name} löschen?`)) { await safe(() => api('DELETE', `/vault/${s.name}`)); load(); } }}><${Icon} n="trash" /></button></div>`)}
     </div>
     <label class="lbl" style="margin-top:14px">Neuer Schlüssel</label>
     <div class="row">
@@ -432,7 +432,7 @@ function Settings({ section }) {
     <div style="display:grid;gap:8px">
       ${prompts.map((p, i) => html`<div class="card" key=${i}><div class="card-body" style="display:grid;gap:6px;padding:8px">
         <div class="row"><input class="field" value=${p.title} onInput=${(e) => { const n = [...prompts]; n[i] = { ...p, title: e.target.value }; setPrompts(n); setDirty(true); }} />
-          <button class="icon-btn" onClick=${() => { setPrompts(prompts.filter((_, j) => j !== i)); setDirty(true); }}><${Icon} n="trash" /></button></div>
+          <button class="icon-btn" title="Vorlage löschen" onClick=${() => { setPrompts(prompts.filter((_, j) => j !== i)); setDirty(true); }}><${Icon} n="trash" /></button></div>
         <textarea class="field" rows="2" value=${p.text} onInput=${(e) => { const n = [...prompts]; n[i] = { ...p, text: e.target.value }; setPrompts(n); setDirty(true); }}></textarea>
       </div></div>`)}
       <div class="row">

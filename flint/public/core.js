@@ -339,3 +339,48 @@ export async function installApp() {
   }
   set({ modal: { type: 'install-help' } });
 }
+
+// ---- Schnelle Hinweise beim Drüberfahren ---------------------------------------
+// Ersetzt die langsame Browser-Einblendung (title) durch eine eigene: erscheint
+// nach kurzer Pause direkt am Element. Gilt automatisch für alle Elemente mit title.
+(() => {
+  let tip = null, timer = 0, current = null;
+  const hide = () => { clearTimeout(timer); timer = 0; current = null; if (tip) tip.style.opacity = '0'; };
+  const show = (el) => {
+    const text = el.dataset.tip;
+    if (!text || !document.body.contains(el)) return;
+    if (!tip) { tip = document.createElement('div'); tip.className = 'tooltip'; document.body.appendChild(tip); }
+    tip.textContent = text;
+    tip.style.opacity = '0';
+    tip.style.display = 'block';
+    const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+    let left = r.left + r.width / 2 - t.width / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - t.width - 8));
+    let top = r.bottom + 8;
+    if (top + t.height > window.innerHeight - 8) top = r.top - t.height - 8;
+    tip.style.left = left + 'px';
+    tip.style.top = top + 'px';
+    tip.style.opacity = '1';
+  };
+  document.addEventListener('mouseover', (e) => {
+    const el = e.target.closest?.('[title], [data-tip]');
+    if (!el || el === current) return;
+    if (el.hasAttribute('title')) { const t = el.getAttribute('title'); if (t) el.dataset.tip = t; el.removeAttribute('title'); }
+    hide();
+    current = el;
+    timer = setTimeout(() => show(el), 350);
+  }, true);
+  document.addEventListener('mouseout', (e) => {
+    if (current && !current.contains(e.relatedTarget)) hide();
+  }, true);
+  document.addEventListener('mousedown', hide, true);
+  document.addEventListener('scroll', hide, true);
+  window.addEventListener('blur', hide);
+  // Preact setzt title bei Änderungen neu: dann den neuen Text übernehmen
+  new MutationObserver((list) => {
+    for (const m of list) {
+      const el = m.target;
+      if (el.hasAttribute?.('title')) { const t = el.getAttribute('title'); if (t) el.dataset.tip = t; el.removeAttribute('title'); if (el === current && tip) tip.textContent = t; }
+    }
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['title'], subtree: true });
+})();

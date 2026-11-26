@@ -317,7 +317,7 @@ function Composer({ sid }) {
         <span class="chip" key=${i} title=${a.kind === 'element' ? a.html : a.path}>
           ${a.thumb ? html`<img src=${a.thumb} />` : a.kind === 'element' ? html`<${Icon} n="target" size="13" />` : html`<${Icon} n="file" size="13" />`}
           <span>${a.label}</span>
-          <button class="icon-btn" style="width:18px;height:18px" onClick=${() => setAttachments(attachments.filter((_, j) => j !== i))}><${Icon} n="x" size="12" /></button>
+          <button class="icon-btn" title="Anhang entfernen" style="width:18px;height:18px" onClick=${() => setAttachments(attachments.filter((_, j) => j !== i))}><${Icon} n="x" size="12" /></button>
         </span>`)}</div>`}
       <textarea ref=${ta} rows="1" value=${text} onInput=${onInput} onKeyDown=${onKey} onPaste=${onPaste}
         placeholder=${busy ? 'Claude arbeitet. Deine Nachricht wird eingereiht…' : 'Sag Claude, was es bauen oder ändern soll… (/ für Vorlagen)'}></textarea>
@@ -442,10 +442,10 @@ export function Chat() {
   if (!p) return html`<div class="chat"></div>`;
   return html`<div class="chat">
     ${s ? html`<${Header} s=${s} />` : html`<div class="chat-head">
-      ${!S.showSide && html`<button class="icon-btn" onClick=${() => { set({ showSide: true }); persist(); }}><${Icon} n="side" /></button>`}
+      ${!S.showSide && html`<button class="icon-btn" title="Seitenleiste einblenden" onClick=${() => { set({ showSide: true }); persist(); }}><${Icon} n="side" /></button>`}
       <span class="chat-title">${p.name}</span><${PathChip} p=${p} full /><span class="spacer"></span>
       <button class="btn sm" onClick=${() => newSession()}><${Icon} n="plus" /> Sitzung</button>
-      <button class=${'icon-btn' + (S.showWork ? ' on' : '')} onClick=${() => { set({ showWork: !S.showWork }); persist(); }}><${Icon} n="panel" /></button>
+      <button class=${'icon-btn' + (S.showWork ? ' on' : '')} title="Arbeitsbereich (Vorschau, Terminal …) ein/aus" onClick=${() => { set({ showWork: !S.showWork }); persist(); }}><${Icon} n="panel" /></button>
     </div>`}
     ${s ? html`<${Messages} sid=${s.id} />` : html`<${EmptyChat} />`}
     ${s && html`<${Queue} sid=${s.id} />`}
