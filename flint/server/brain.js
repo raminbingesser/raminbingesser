@@ -127,6 +127,7 @@ export function systemAddendum(project, role) {
     'Soll der Mensch eine bestimmte Seite oder einen Modus sehen (z. B. /dashboard?demo), nenne die vollständige lokale Adresse in deiner Antwort; die Vorschau wechselt automatisch dorthin. Öffne dafür keine eigenen Browser-Tabs.',
     'Für einfache Dashboards und Tools reicht oft eine einzelne HTML-Datei (z. B. dashboard/index.html); die Vorschau kann Projektdateien direkt anzeigen.',
     'Schlüssel aus dem Tresor stehen dir als Umgebungsvariablen zur Verfügung. Gib ihre Werte nie aus.',
+    'Ändere Dateien mit den Werkzeugen Edit/Write, nicht mit sed, awk, perl oder echo im Terminal (Terminal-Befehle muss der Mensch jedes Mal erlauben).',
   ];
   if (role) parts.push(`Deine Rolle in diesem Team: ${role}`);
   // Ist das Brain schon über CLAUDE.md eingebunden, lädt Claude Code es selbst.

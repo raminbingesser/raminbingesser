@@ -194,6 +194,12 @@ export function answerPermission(sid, reqId, decision, answers) {
   if (!r.pending.size && r.status === 'waiting') setStatus(sid, 'running');
 }
 
+// Rechte-Stufe einer laufenden Sitzung sofort ändern (wirkt noch im aktuellen Durchgang).
+export async function applyPermissionMode(sid, mode) {
+  const r = runtime(sid);
+  try { await r.query?.setPermissionMode?.(mode); } catch { }
+}
+
 export function isBusy(sid) { return runtime(sid).status !== 'idle'; }
 
 export function forget(sid) {
@@ -236,7 +242,8 @@ async function runTurn(sid, text) {
     model: s.model,
     effort: s.effort,
     permissionMode: s.permissionMode,
-    allowDangerouslySkipPermissions: s.permissionMode === 'bypassPermissions',
+    // erlaubt nur das spätere Umschalten auf „Alles erlauben“ (z. B. per „Nicht mehr fragen“), schaltet es nicht ein
+    allowDangerouslySkipPermissions: true,
     abortController: abort,
     includePartialMessages: true,
     env: { ...process.env, ...vaultEnv },
@@ -262,6 +269,11 @@ async function runTurn(sid, text) {
   };
   if (s.claudeSessionId) options.resume = s.claudeSessionId;
 
+  // Reine Lese-Befehle nie nachfragen (Suchen, Anzeigen, Git-Status).
+  options.allowedTools = [
+    'Bash(grep:*)', 'Bash(rg:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(head:*)', 'Bash(tail:*)', 'Bash(find:*)', 'Bash(wc:*)',
+    'Bash(pwd)', 'Bash(which:*)', 'Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)'];
+
   // Persönliche Claude-Einstellungen (~/.claude: CLAUDE.md, Hooks, z. B. PAI) machen
   // jede Antwort langsamer. Abschaltbar; die Schnellspur lädt sie nie.
   const settings = store.getState().settings;
@@ -277,6 +289,7 @@ async function runTurn(sid, text) {
       type: 'preset', preset: 'claude_code',
       append: `Schnelländerung in Flint im Projekt "${project.name}". Der Mensch sieht die Live-Vorschau und prüft selbst.\n`
         + '- Mache genau die gewünschte Änderung, so klein wie möglich. Finde die Stelle zügig (Grep nach Text/Klasse/ID) und ändere sie direkt.\n'
+        + '- Ändere Dateien ausschließlich mit dem Edit-Werkzeug, nie mit sed, awk, perl oder echo im Terminal.\n'
         + '- Nicht testen, keinen Browser öffnen, keine Screenshots, keine Server starten oder neu starten, keine Commits, keine Berichte.\n'
         + '- Frag nur nach, wenn die Änderung wirklich mehrdeutig ist.\n'
         + '- Antworte am Ende mit genau einem kurzen Satz auf Deutsch, was du geändert hast.',

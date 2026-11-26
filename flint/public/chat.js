@@ -109,7 +109,14 @@ function Permission({ sid, p }) {
       <button class="btn sm" onClick=${() => answer('always')}>Immer erlauben</button>
       <button class="btn sm danger" onClick=${() => answer('deny')}>Ablehnen</button>
       <span class="spacer"></span>
-      <span class="hint" style="margin:0" title="Oben im Chat auf „Dateien automatisch“ oder „Alles erlauben“ stellen, dann fragt Claude seltener.">Weniger Fragen? Oben einstellen</span>
+      <button class="btn sm ghost" title="Erlaubt diesen und alle weiteren Schritte ohne Nachfrage, in dieser und in neuen Sitzungen (Rechte-Stufe „Alles erlauben“). Zurück jederzeit oben im Chat oder in den Einstellungen. Sicherheitsnetz: Tab „Versionen“."
+        onClick=${async () => {
+          await safe(() => api('PATCH', `/sessions/${sid}`, { permissionMode: 'bypassPermissions' }));
+          const st = await safe(() => api('PUT', '/settings', { defaultPermission: 'bypassPermissions' }));
+          if (st) set({ settings: st });
+          await answer('allow');
+          toast('Claude fragt ab jetzt nicht mehr. Zurückstellen: oben im Chat bei den Rechten.');
+        }}>Nicht mehr fragen</button>
     </div>
   </div>`;
 }

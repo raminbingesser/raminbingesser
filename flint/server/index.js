@@ -343,6 +343,7 @@ api.patch('/sessions/:sid', wrap((req) => {
   const patch = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
   const s = store.updateSession(req.params.sid, patch);
   if (!s) throw new Error('Sitzung nicht gefunden.');
+  if (patch.permissionMode) agents.applyPermissionMode(s.id, patch.permissionMode);
   broadcast({ type: 'session:updated', session: s });
   return s;
 }));
