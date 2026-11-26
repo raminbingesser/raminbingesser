@@ -48,6 +48,8 @@ Das Skript:
 
 Danach startest du Flint wie jede App (Launchpad, Spotlight, Dock). Flint öffnet sich in einem eigenen Fenster: in Chrome, Edge oder Brave ohne Browserleiste, sonst im Standardbrowser.
 
+**Eigene App mit eigenem Dock-Symbol:** In Flint links unten auf **„Als eigene App installieren“** (oder Einstellungen → „Als App installieren“). Chrome legt dann eine eigenständige Flint-App an: eigenes Symbol im Dock und in ⌘Tab, eigenes Fenster. Danach in den Einstellungen **„Beim Login starten“** einschalten: Der Flint-Server läuft dann unsichtbar im Hintergrund bereit, und die App öffnet jederzeit sofort.
+
 **Beim ersten Start** prüft Flint, ob alles bereit ist, und meldet dich bei Bedarf mit deinem Claude-Konto (Pro oder Max) an. **Es ist kein API-Key nötig.** Flint nutzt Claude Code mit deinem Abo.
 
 ### Ohne App, direkt im Terminal

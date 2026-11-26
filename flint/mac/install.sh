@@ -79,32 +79,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-cat > "$APP/Contents/MacOS/Flint" <<LAUNCH
-#!/bin/bash
-# Startet den Flint-Server (falls er nicht schon läuft) und öffnet das Fenster.
-export PATH="/opt/homebrew/bin:/usr/local/bin:\$HOME/.local/bin:\$HOME/.npm-global/bin:\$HOME/.claude/local:\$PATH"
-[ -s "\$HOME/.nvm/nvm.sh" ] && . "\$HOME/.nvm/nvm.sh" >/dev/null 2>&1
-FLINT_DIR="$FLINT_DIR"
-PORT="\${FLINT_PORT:-4317}"
-URL="http://localhost:\$PORT/"
-mkdir -p "\$HOME/.flint"
-if ! curl -s -o /dev/null --max-time 1 "\$URL"; then
-  cd "\$FLINT_DIR"
-  FLINT_NO_OPEN=1 nohup node server/index.js >> "\$HOME/.flint/flint.log" 2>&1 &
-  for i in \$(seq 1 60); do
-    curl -s -o /dev/null --max-time 1 "\$URL" && break
-    sleep 0.25
-  done
-fi
-# Eigenes App-Fenster (ohne Browserleiste), wenn Chrome, Edge oder Brave da sind.
-for b in "Google Chrome" "Microsoft Edge" "Brave Browser" "Arc"; do
-  if [ -d "/Applications/\$b.app" ] || [ -d "\$HOME/Applications/\$b.app" ]; then
-    if [ "\$b" = "Arc" ]; then open -a "Arc" "\$URL"; else open -na "\$b" --args --app="\$URL" --window-size=1500,950; fi
-    exit 0
-  fi
-done
-open "\$URL"
-LAUNCH
+sed "s|__FLINT_DIR__|$FLINT_DIR|" "$FLINT_DIR/mac/launcher.sh" > "$APP/Contents/MacOS/Flint"
 chmod +x "$APP/Contents/MacOS/Flint"
 touch "$APP"
 

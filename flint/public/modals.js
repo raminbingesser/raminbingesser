@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import {
   html, S, set, api, safe, toast, project, selectSession, selectProject, newSession, sendPrompt, persist,
-  MODELS, EFFORTS, PERMS, slug, setPreview, sessionsOf, mod, loadState,
+  MODELS, EFFORTS, PERMS, slug, setPreview, sessionsOf, mod, loadState, installApp, appInstalled, runningAsApp,
 } from './core.js';
 import { Icon } from './icons.js';
 import { TermView } from './work.js';
@@ -381,7 +381,29 @@ function Settings({ section }) {
   const promptsRef = useRef();
   useEffect(() => { if (section === 'prompts') promptsRef.current?.scrollIntoView(); }, []);
   const c = S.claude;
+  const [auto, setAuto] = useState(null);
+  useEffect(() => { api('GET', '/autostart').then(setAuto).catch(() => setAuto({ supported: false })); }, []);
+  const toggleAuto = async (enable) => {
+    const r = await safe(() => api('POST', '/autostart', { enable }));
+    if (!r) return;
+    setAuto({ ...auto, enabled: r.enabled });
+    toast(enable ? 'Autostart an. Flint startet kurz neu und läuft ab jetzt im Hintergrund bereit.' : 'Autostart aus.');
+  };
   return html`<${Modal} title="Einstellungen" wide>
+    <label class="lbl">Flint als eigene App</label>
+    <div class="list">
+      <div class="list-item">
+        <span class=${'pill ' + (appInstalled() || runningAsApp() ? 'ok' : '')}>${appInstalled() ? 'installiert' : runningAsApp() ? 'eigenes Fenster' : 'im Browser'}</span>
+        <span class="small grow">Eigenes Flint-Symbol im Dock und in ⌘Tab, eigenes Fenster, ohne langes Klicken auf Chrome.</span>
+        <button class="btn sm primary" onClick=${installApp}>Als App installieren</button>
+      </div>
+      ${auto?.supported && html`<div class="list-item">
+        <span class=${'pill ' + (auto.enabled ? 'ok' : '')}>${auto.enabled ? 'an' : 'aus'}</span>
+        <span class="small grow">Beim Login starten: Flint läuft unsichtbar im Hintergrund bereit, die App öffnet sofort. Startet nach einem Absturz von selbst neu.</span>
+        <button class="btn sm" onClick=${() => toggleAuto(!auto.enabled)}>${auto.enabled ? 'Ausschalten' : 'Einschalten'}</button>
+      </div>`}
+    </div>
+
     <label class="lbl">Claude</label>
     <div class="list"><div class="list-item">
       <span class=${'pill ' + (c?.loggedIn ? 'ok' : 'bad')}>${c ? (c.loggedIn ? 'angemeldet' : c.expired ? 'Anmeldung abgelaufen' : 'nicht angemeldet') : '…'}</span>
@@ -426,6 +448,25 @@ function Settings({ section }) {
       <button class="btn sm" onClick=${async () => { if (!confirm('Flint beenden? Laufende Agenten werden gestoppt.')) return; await api('POST', '/shutdown').catch(() => { }); document.body.innerHTML = '<div style="display:grid;place-items:center;height:100vh;font-family:system-ui;color:#888">Flint wurde beendet. Du kannst dieses Fenster schließen.</div>'; }}>Flint beenden</button>
       <span class="hint" style="margin:0">Daten: <span class="mono">~/.flint</span> · Projekte standardmäßig in <span class="mono">${S.info?.defaultDir}</span></span>
     </div>
+  </${Modal}>`;
+}
+
+// ---------------------------------------------------------------------------
+// Anleitung: als App installieren (wenn Chrome den Dialog nicht direkt anbietet)
+// ---------------------------------------------------------------------------
+function InstallHelp() {
+  return html`<${Modal} title="Flint als eigene App installieren" foot=${html`
+    <button class="btn" onClick=${close}>Schließen</button>
+    <button class="btn primary" onClick=${() => window.open(location.origin + '/', '_blank')}>In Chrome-Tab öffnen</button>`}>
+    <p class="muted small" style="margin-top:0">Chrome legt dann eine eigene Flint-App an: eigenes Symbol im Dock, eigenes Fenster, eigener Eintrag in ⌘Tab.</p>
+    <ol style="padding-left:20px;line-height:1.8;margin:0">
+      <li>Auf <b>„In Chrome-Tab öffnen“</b> klicken (öffnet Flint in einem normalen Chrome-Tab).</li>
+      <li>Rechts in der Adressleiste auf das <b>Installieren-Symbol</b> (Bildschirm mit Pfeil) klicken<br />
+        <span class="muted small">oder Chrome-Menü <b>⋮</b> → <b>Streamen, speichern und teilen</b> → <b>Seite als App installieren…</b></span></li>
+      <li><b>Installieren</b> bestätigen. Flint öffnet sich im eigenen Fenster.</li>
+      <li>Im Dock: Rechtsklick auf das Flint-Symbol → <b>Optionen → Im Dock behalten</b>.</li>
+    </ol>
+    <div class="hint" style="margin-top:12px">Tipp: Schalte in den Einstellungen <b>„Beim Login starten“</b> ein, dann öffnet die App jederzeit sofort, ohne vorher etwas zu starten.</div>
   </${Modal}>`;
 }
 
@@ -681,5 +722,6 @@ export function Modals() {
   if (m.type === 'variant') return html`<${NewVariant} />`;
   if (m.type === 'variant-actions') return html`<${VariantActions} pid=${m.pid} />`;
   if (m.type === 'publish') return html`<${Publish} />`;
+  if (m.type === 'install-help') return html`<${InstallHelp} />`;
   return null;
 }

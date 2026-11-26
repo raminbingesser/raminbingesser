@@ -315,3 +315,27 @@ export function useDictation(getText, setText) {
   };
   return { recording: !!rec, toggle, stop: () => rec?.stop(), supported: !!SpeechRec };
 }
+
+// ---- Als eigene App (Chrome-Web-App mit eigenem Dock-Symbol) ---------------------
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => { });
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); set({ installPrompt: e }); });
+window.addEventListener('appinstalled', () => {
+  try { localStorage.setItem('wb:appInstalled', '1'); } catch { }
+  set({ installPrompt: null, appInstalled: true });
+  toast('Flint ist jetzt eine eigene App. Tipp: Rechtsklick aufs Flint-Symbol im Dock → Optionen → Im Dock behalten.');
+});
+export const runningAsApp = () => matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: window-controls-overlay)').matches;
+export function appInstalled() {
+  try { return S.appInstalled || localStorage.getItem('wb:appInstalled') === '1'; } catch { return !!S.appInstalled; }
+}
+export async function installApp() {
+  const p = S.installPrompt;
+  if (p) {
+    p.prompt();
+    const r = await p.userChoice.catch(() => null);
+    if (r?.outcome !== 'accepted') toast('Installation abgebrochen.');
+    set({ installPrompt: null });
+    return;
+  }
+  set({ modal: { type: 'install-help' } });
+}

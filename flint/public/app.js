@@ -2,7 +2,7 @@ import { render } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import {
   html, S, set, useStore, api, safe, toast, connect, onMessage, loadEvents, persist, rt,
-  selectSession, selectProject, newSession, sessionsOf, project, notify, mod, isMac, restartFlint,
+  selectSession, selectProject, newSession, sessionsOf, project, notify, mod, isMac, restartFlint, installApp, appInstalled,
 } from './core.js';
 import { Icon } from './icons.js';
 import { Chat } from './chat.js';
@@ -155,6 +155,10 @@ function Sidebar() {
       ${roots.map(p => html`<${ProjectBlock} key=${p.id} p=${p} />`)}
     </div>
     <div class="side-foot">
+      ${!appInstalled() && !S.hideInstall && html`<div class="row" style="padding:2px 2px 6px">
+        <button class="btn sm primary grow" onClick=${installApp}><${Icon} n="monitor" /> Als eigene App installieren</button>
+        <button class="icon-btn" title="Ausblenden" onClick=${() => { set({ hideInstall: true }); try { localStorage.setItem('wb:appInstalled', '1'); } catch { } }}><${Icon} n="x" size="12" /></button>
+      </div>`}
       <button class="btn ghost block" onClick=${() => set({ modal: { type: 'palette' } })}><${Icon} n="search" /> Suchen <span class="spacer"></span><span class="kbd">${mod}K</span></button>
       <button class="btn ghost block" onClick=${() => set({ modal: { type: 'mcp' } })}><${Icon} n="plug" /> MCP & Tools</button>
       <button class="btn ghost block" onClick=${() => set({ modal: { type: 'vault' } })}><${Icon} n="key" /> Tresor</button>

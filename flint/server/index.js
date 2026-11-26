@@ -116,6 +116,38 @@ app.use('/static', express.static(PUBLIC, { index: false }));
 // Ohne Token: verrät nur, ob der laufende Server älter ist als der Code auf der Platte.
 app.get('/health', (_req, res) => res.set('Cache-Control', 'no-store').json({ ok: true, stale: codeStamp() > BOOT_STAMP }));
 
+// Service Worker muss unter / liegen, damit Flint als eigene App installierbar ist.
+app.get('/sw.js', (_req, res) => res.set({ 'Cache-Control': 'no-store', 'Service-Worker-Allowed': '/' }).type('js').sendFile(path.join(PUBLIC, 'sw.js')));
+
+// ---- Autostart beim Login (macOS LaunchAgent) --------------------------------
+// Hält den Flint-Server im Hintergrund bereit, damit die installierte Flint-App
+// jederzeit sofort öffnet. Startet bei Absturz neu, nicht nach „Flint beenden“.
+const AGENT_LABEL = 'local.flint.server';
+const AGENT_PLIST = path.join(os.homedir(), 'Library', 'LaunchAgents', `${AGENT_LABEL}.plist`);
+const xml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function agentPlist() {
+  const envPath = [path.dirname(process.execPath), '/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local', 'bin'), '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(':');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>${AGENT_LABEL}</string>
+  <key>ProgramArguments</key><array><string>${xml(process.execPath)}</string><string>${xml(path.join(ROOT, 'server', 'index.js'))}</string></array>
+  <key>WorkingDirectory</key><string>${xml(ROOT)}</string>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>${xml(envPath)}</string>
+    <key>FLINT_NO_OPEN</key><string>1</string>
+    <key>FLINT_LAUNCHD</key><string>1</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>3</integer>
+  <key>StandardOutPath</key><string>${xml(path.join(store.HOME, 'flint.log'))}</string>
+  <key>StandardErrorPath</key><string>${xml(path.join(store.HOME, 'flint.log'))}</string>
+</dict></plist>
+`;
+}
+
+
 // API: verlangt den Token im Header (fremde Webseiten können ihn nicht lesen).
 const api = express.Router();
 api.use((req, res, next) => (req.get('x-flint-token') === TOKEN ? next() : res.status(401).json({ error: 'Kein Zugriff.' })));
@@ -503,6 +535,8 @@ api.get('/update', wrap(async () => {
 }));
 // Neustart (z. B. nach einem Update): neuen Server starten, sobald dieser beendet ist.
 api.post('/restart', wrap(() => {
+  // Als Hintergrunddienst: mit Fehlercode beenden, macOS startet Flint sofort neu.
+  if (process.env.FLINT_LAUNCHD) { setTimeout(() => { term.killAll(); store.flush(); process.exit(75); }, 200); return { ok: true }; }
   const log = fs.openSync(path.join(store.HOME, 'flint.log'), 'a');
   const script = `sleep 1; exec "${process.execPath}" "${path.join(ROOT, 'server', 'index.js')}"`;
   spawn('/bin/sh', ['-c', script], { cwd: ROOT, detached: true, stdio: ['ignore', log, log], env: { ...process.env, FLINT_NO_OPEN: '1' } }).unref();
@@ -519,6 +553,30 @@ const mcpCwd = (req) => (req.query.pid && store.getProject(req.query.pid)?.path)
 api.get('/mcp', wrap((req) => claude.mcpList(mcpCwd(req))));
 api.post('/mcp', wrap((req) => claude.mcpAdd(req.body, mcpCwd(req))));
 api.delete('/mcp/:name', wrap((req) => claude.mcpRemove(req.params.name, req.query.scope, mcpCwd(req))));
+
+api.get('/autostart', wrap(() => ({ supported: process.platform === 'darwin', enabled: fs.existsSync(AGENT_PLIST), managed: !!process.env.FLINT_LAUNCHD })));
+api.post('/autostart', wrap((req) => {
+  if (process.platform !== 'darwin') throw new Error('Autostart gibt es nur auf dem Mac.');
+  const uid = process.getuid();
+  if (req.body.enable) {
+    fs.mkdirSync(path.dirname(AGENT_PLIST), { recursive: true });
+    fs.writeFileSync(AGENT_PLIST, agentPlist());
+    // Dieser Server beendet sich, danach übernimmt der Hintergrunddienst (gleicher Port).
+    const cmd = `sleep 1; launchctl bootout gui/${uid}/${AGENT_LABEL} 2>/dev/null; launchctl bootstrap gui/${uid} "${AGENT_PLIST}"`;
+    spawn('/bin/sh', ['-c', cmd], { detached: true, stdio: 'ignore' }).unref();
+    setTimeout(shutdown, 300);
+    return { enabled: true, restarting: true };
+  }
+  fs.rmSync(AGENT_PLIST, { force: true });
+  if (process.env.FLINT_LAUNCHD) {
+    // Wir laufen selbst als Dienst: als normaler Prozess neu starten, dann Dienst entfernen.
+    const log = fs.openSync(path.join(store.HOME, 'flint.log'), 'a');
+    spawn('/bin/sh', ['-c', `sleep 1; exec "${process.execPath}" "${path.join(ROOT, 'server', 'index.js')}"`], { cwd: ROOT, detached: true, stdio: ['ignore', log, log], env: { ...process.env, FLINT_NO_OPEN: '1', FLINT_LAUNCHD: '' } }).unref();
+    spawn('/bin/sh', ['-c', `sleep 0.5; launchctl bootout gui/${uid}/${AGENT_LABEL}`], { detached: true, stdio: 'ignore' }).unref();
+    return { enabled: false, restarting: true };
+  }
+  return { enabled: false };
+}));
 
 app.use('/api', api);
 
@@ -604,6 +662,19 @@ server.on('error', (e) => {
   }
   throw e;
 });
+
+// Den Mac-Starter (~/Applications/Flint.app) auf dem neuesten Stand halten,
+// damit Verbesserungen ohne erneutes Installationsskript ankommen.
+function refreshMacLauncher() {
+  if (process.platform !== 'darwin') return;
+  const target = path.join(os.homedir(), 'Applications', 'Flint.app', 'Contents', 'MacOS', 'Flint');
+  try {
+    if (!fs.existsSync(target)) return;
+    const want = fs.readFileSync(path.join(ROOT, 'mac', 'launcher.sh'), 'utf8').replace('__FLINT_DIR__', ROOT);
+    if (fs.readFileSync(target, 'utf8') !== want) { fs.writeFileSync(target, want, { mode: 0o755 }); fs.chmodSync(target, 0o755); }
+  } catch (e) { console.warn('[flint] Starter konnte nicht aktualisiert werden:', e.message); }
+}
+refreshMacLauncher();
 
 server.listen(PORT, '127.0.0.1', async () => {
   const url = `http://localhost:${PORT}/`;
