@@ -9,6 +9,7 @@ import { Icon } from './icons.js';
 // Vorschau
 // =====================================================================
 const DEVICES = { desktop: null, tablet: [820, 1180], mobile: [390, 844] };
+const appStartedAt = {}; // Terminal-ID -> Startzeit der App
 const sameOrigin = (a, b) => {
   try {
     const x = new URL(a), y = new URL(b);
@@ -118,18 +119,25 @@ function Preview({ pid }) {
   // App starten: erst prüfen, ob sie schon läuft; nie doppelt starten; dann den Port abfragen.
   const startApp = async () => {
     const r = runRef.current;
-    if (await isUp(r?.url)) { showApp(r.url); toast('Die App läuft schon und wird angezeigt.'); return; }
+    if (await isUp(r?.url)) { showApp(r.url); return; }
     if (!r?.command) return sendPrompt('Starte die App dieses Projekts als Dev-Server im Hintergrund und nenne mir am Ende die lokale Adresse (http://localhost:…).');
     setStarting(true); setNeedsServer(false); setDown(false);
     setPreview(pid, { waitUrl: true, suggest: null });
     const list = S.terms[pid] || await api('GET', `/projects/${pid}/terminals`).catch(() => []);
-    const running = list.find(t => t.title === 'App' && !t.exited);
-    if (running) toast('Die App läuft schon in einem Terminal. Ich warte, bis sie antwortet…');
-    else {
+    let running = list.find(t => t.title === 'App' && !t.exited);
+    // Altes App-Terminal, dessen App nicht (mehr) antwortet: schließen und frisch starten.
+    // Nur ein gerade erst gestartetes (< 60 s) lassen wir in Ruhe hochfahren.
+    if (running && Date.now() - (appStartedAt[running.id] || 0) > 60000) {
+      await api('DELETE', `/terminals/${running.id}`).catch(() => { });
+      termRegistry.get(running.id)?.term.dispose(); termRegistry.delete(running.id);
+      list.splice(list.indexOf(running), 1);
+      running = null;
+    }
+    if (!running) {
       const t = await safe(() => api('POST', `/projects/${pid}/terminals`, { title: 'App', command: r.command }));
       if (!t) { setStarting(false); setPreview(pid, { waitUrl: false }); return; }
+      appStartedAt[t.id] = Date.now();
       set({ terms: { ...S.terms, [pid]: [...list, t] } });
-      toast(`App startet (${r.command}) … die Vorschau erscheint, sobald der Server läuft.`);
     }
     // Unabhängig von der Terminal-Ausgabe: bekannten Port abfragen.
     for (let i = 0; i < 60; i++) {
@@ -141,6 +149,13 @@ function Preview({ pid }) {
     setPreview(pid, { waitUrl: false });
     toast('Der Server antwortet nicht. Schau im Tab „Terminal“ nach, was passiert, oder sag Claude „starte die App“.', 'err');
   };
+
+  const autoTried = useRef(false);
+  useEffect(() => { autoTried.current = false; }, [pid]);
+  useEffect(() => {
+    const noPreviewYet = !previewOf(pid).mode && run?.server;
+    if ((down || needsServer || noPreviewYet) && run?.command && !starting && !autoTried.current) { autoTried.current = true; startApp(); }
+  }, [down, needsServer, run, starting]);
 
   const reload = (auto) => {
     setErrors([]);
@@ -299,8 +314,8 @@ function Preview({ pid }) {
   }, [pv.mode, pv.url]);
   useEffect(() => {
     if (pv.mode !== 'url' || !pv.edit) { if (viaProxy) { setViaProxy(false); setBridge(null); } return; }
-    if (bridge === false && !viaProxy && proxy?.proxied) { setViaProxy(true); setBridge(null); }
-  }, [pv.mode, pv.edit, bridge, proxy]);
+    if (bridge === false && !viaProxy && proxy?.proxied && !down && !starting) { setViaProxy(true); setBridge(null); }
+  }, [pv.mode, pv.edit, bridge, proxy, down, starting]);
   useEffect(() => { setViaProxy(false); }, [pv.url]);
 
   const src = pv.mode === 'file' && pv.file ? rawUrl(pid, pv.file, pv.nonce || 0)
@@ -349,13 +364,8 @@ function Preview({ pid }) {
         <button class=${'icon-btn' + (pv.device === 'tablet' ? ' on' : '')} title="Ansicht: Tablet (820 px)" onClick=${() => setPreview(pid, { device: 'tablet' })}><${Icon} n="tablet" /></button>
         <button class=${'icon-btn' + (pv.device === 'mobile' ? ' on' : '')} title="Ansicht: Handy (390 px)" onClick=${() => setPreview(pid, { device: 'mobile' })}><${Icon} n="phone" /></button>
         <button class="icon-btn" title="In eigenem Browser-Fenster öffnen" onClick=${openExt}><${Icon} n="ext" /></button>`}
-      ${run?.server && pv.mode !== 'sim' && (pv.mode !== 'url' || down) && html`<button class="btn sm primary" disabled=${starting}
-        title=${`App mit eigenem Server starten: ${run.command}`} onClick=${startApp}>${starting ? html`<span class="spin"></span> Startet…` : html`<${Icon} n="play" /> App starten`}</button>`}
       <button class="icon-btn" title="Veröffentlichen: online stellen mit Railway" onClick=${() => set({ modal: { type: 'publish' } })}><${Icon} n="up" /></button>
     </div>
-    ${(needsServer || down) && !starting && html`<div class="suggest"><${Icon} n="play" size="14" />
-      <span class="grow">${down ? `Die App unter ${pv.url} läuft gerade nicht.` : 'Diese App braucht ihren eigenen Server, eine einfache Datei-Vorschau reicht nicht.'}</span>
-      <button class="btn sm primary" onClick=${startApp}>${run?.command ? `▶ Starten (${run.command.replace(/^.*&& /, '')})` : 'Claude soll sie starten'}</button></div>`}
     ${pv.suggest && html`<div class="suggest"><${Icon} n="zap" size="14" /> Server erkannt: <b class="mono">${pv.suggest}</b><span class="spacer"></span>
       <button class="btn sm primary" onClick=${() => { setPreview(pid, { mode: 'url', url: pv.suggest, suggest: null }); setUrlInput(pv.suggest); }}>Anzeigen</button>
       <button class="icon-btn" title="Hinweis ausblenden" onClick=${() => setPreview(pid, { suggest: null })}><${Icon} n="x" /></button></div>`}
@@ -363,14 +373,10 @@ function Preview({ pid }) {
       <span class="grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title=${errors.map(e => e.message).join('\n')}>${errors.length} Fehler in der Seite: ${errors[0].message}</span>
       <button class="btn sm primary" onClick=${fixErrors}>Claude beheben lassen</button>
       <button class="icon-btn" title="Fehler ausblenden" onClick=${() => setErrors([])}><${Icon} n="x" /></button></div>`}
-    ${viaProxy && pv.mode === 'url' && html`<div class="suggest" style="font-size:12px"><${Icon} n="target" size="14" />
-      <span class="grow">Für die Klick-Auswahl lädt Flint die App gerade über eine eigene Adresse. Ist die App dort nicht angemeldet, nutze z. B. den Demo-Modus. Nach „Ändern“ ist wieder alles wie gewohnt.</span></div>`}
     ${pv.edit && pv.mode === 'url' && proxy && !proxy.proxied && html`<div class="suggest"><${Icon} n="target" size="14" />
       <span class="grow">„Ändern“ per Klick geht bei deinen lokalen Apps (localhost), nicht bei fremden Webseiten.</span></div>`}
     ${pv.edit && !sel && (pv.mode !== 'url' || bridge) && html`<div class="suggest" style="font-size:12px"><${Icon} n="target" size="14" />
       ${pv.mode === 'sim' ? 'Tippe im Simulator-Bild auf die Stelle, die sich ändern soll.' : 'Fahre über die Seite und klick auf das, was sich ändern soll.'} <span class="spacer"></span><span class="muted">Esc beendet</span></div>`}
-    ${pv.mode === 'url' && html`<div class="suggest" style="background:transparent;font-size:12px">
-      <label class="row muted"><input type="checkbox" checked=${!!pv.hmr} onChange=${(e) => setPreview(pid, { hmr: e.target.checked })} /> Server aktualisiert sich selbst (Vite/Next Hot Reload). Flint lädt dann nicht zusätzlich neu.</label></div>`}
     <div class=${'stage' + (dev ? ' device' : '')} ref=${stageRef} style=${dev ? `--dev-w:${dev[0]}px;--dev-h:${dev[1]}px` : ''}
       onKeyDown=${(e) => { if (e.key === 'Escape') { setSel(null); setPreview(pid, { edit: false }); } }}>
       ${flash > 0 && html`<div class="flash" key=${flash}>aktualisiert</div>`}
@@ -390,6 +396,13 @@ function Preview({ pid }) {
             : html`<div class="empty"><div class="big">👀</div><h3>Live-Vorschau</h3>
               <p>Sobald Claude eine HTML-Datei anlegt oder einen Server startet, erscheint sie hier und aktualisiert sich bei jeder Änderung.</p>
               <p class="small">Oder oben eine Adresse eingeben, z. B. <span class="mono">localhost:3000</span>.</p></div>`}
+      ${(down || needsServer) && !starting && pv.mode !== 'sim' && html`<div class="empty" style="position:absolute;inset:0;background:var(--bg);max-width:none;display:grid;place-content:center">
+        <div class="big">⏸</div><h3>Die App läuft gerade nicht</h3>
+        <p class="small">${run?.command ? 'Der automatische Start hat nicht geklappt. Was los ist, steht im Tab „Terminal“.' : 'Flint weiß nicht, wie diese App gestartet wird.'}</p>
+        <div class="row" style="justify-content:center;margin-top:8px">
+          ${run?.command && html`<button class="btn primary" onClick=${startApp}>Nochmal starten</button>`}
+          <button class="btn" onClick=${() => sendQuickEdit('Starte die App dieses Projekts als Dev-Server im Hintergrund und nenne mir die lokale Adresse. Wenn sie nicht startet, behebe die Ursache.')}>Claude starten lassen</button>
+        </div></div>`}
       ${starting && html`<div class="empty" style="position:absolute;inset:0;background:var(--bg);max-width:none;display:grid;place-content:center">
         <div class="spin" style="margin:0 auto"></div><h3>App startet…</h3><p class="mono small">${run?.command}</p>
         <p class="small">Beim ersten Mal werden Pakete installiert, das kann eine Minute dauern. Fortschritt im Tab „Terminal“.</p></div>`}
