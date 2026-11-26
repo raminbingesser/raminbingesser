@@ -71,6 +71,27 @@ function kinds(entries) {
   return k;
 }
 
+// Git-Arbeitskopien (Worktrees, z. B. von der Claude Desktop App unter ~/.claude…)
+// auf das eigentliche Projekt zurückführen. Liegt die Arbeitskopie in einem
+// Unterordner, wird derselbe Unterordner im Original genommen.
+export function mainRepo(p) {
+  try {
+    let dir = p, rel = '';
+    // nach oben bis zum Ordner mit .git
+    while (!fs.existsSync(path.join(dir, '.git')) && path.dirname(dir) !== dir) { rel = path.join(path.basename(dir), rel); dir = path.dirname(dir); }
+    const g = path.join(dir, '.git');
+    if (!safeStat(g)?.isFile()) return p;
+    const m = fs.readFileSync(g, 'utf8').match(/^gitdir:\s*(.+)\s*$/m);
+    if (!m) return p;
+    const gitdir = path.resolve(dir, m[1]);
+    const parts = gitdir.split(path.sep);
+    const i = parts.lastIndexOf('worktrees');
+    if (i < 1 || parts[i - 1] !== '.git') return p;
+    const main = path.join(parts.slice(0, i - 1).join(path.sep) || path.sep, rel);
+    return safeStat(main)?.isDirectory() ? main : p;
+  } catch { return p; }
+}
+
 // Ordner, in denen Claude Code schon lief (inkl. Desktop App), mit letzter Nutzung.
 function claudeCodeFolders() {
   const out = new Map();
@@ -99,6 +120,7 @@ export function scan(force = false) {
   if (!force && cache && Date.now() - cache.at < 60_000) return cache.list;
   const found = new Map(); // path -> { usedAt }
   const add = (p, usedAt = 0, source = 'ordner') => {
+    p = mainRepo(p);
     const cur = found.get(p);
     if (cur) { cur.usedAt = Math.max(cur.usedAt, usedAt); if (source !== 'ordner') cur.source = source; }
     else found.set(p, { usedAt, source });

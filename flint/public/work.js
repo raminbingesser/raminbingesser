@@ -71,21 +71,46 @@ function Preview({ pid }) {
   const [sel, setSel] = useState(null);
   const [bridge, setBridge] = useState(null); // null = unbekannt, true/false
   const [sim, setSim] = useState({ img: null, err: null, status: null });
+  // Apps mit eigenem Server (npm run dev …)
+  const [run, setRun] = useState(null);
+  const runRef = useRef(null);
+  const [needsServer, setNeedsServer] = useState(false);
+  const [down, setDown] = useState(false);
+  const [starting, setStarting] = useState(false);
 
   const loadFiles = () => api('GET', `/projects/${pid}/html-files`).then(fs => {
     setHtmlFiles(fs);
     const cur = previewOf(pid);
-    if (!cur.mode && fs.length) {
+    // Bei Apps mit eigenem Server nicht einfach index.html zeigen, sondern die App starten lassen.
+    if (!cur.mode && fs.length && runRef.current && !runRef.current.server) {
       const pref = fs.find(f => /(^|\/)(dashboard|tool|app)\/index\.html$/.test(f.path)) || fs.find(f => f.path === 'index.html') || fs[0];
       setPreview(pid, { mode: 'file', file: pref.path });
     }
   }).catch(() => { });
-  useEffect(() => { loadFiles(); setUrlInput(previewOf(pid).url || ''); setErrors([]); setSel(null); }, [pid]);
+  useEffect(() => {
+    setUrlInput(previewOf(pid).url || ''); setErrors([]); setSel(null); setNeedsServer(false); setDown(false); setStarting(false);
+    runRef.current = null; setRun(null);
+    api('GET', `/projects/${pid}/runinfo`).catch(() => ({ server: false })).then(r => { runRef.current = r; setRun(r); loadFiles(); });
+  }, [pid]);
+
+  // App im Terminal starten; die erste erkannte Adresse erscheint automatisch in der Vorschau.
+  const startApp = async () => {
+    const r = runRef.current;
+    if (!r?.command) return sendPrompt('Starte die App dieses Projekts als Dev-Server im Hintergrund und nenne mir am Ende die lokale Adresse (http://localhost:…).');
+    setStarting(true); setNeedsServer(false); setDown(false);
+    setPreview(pid, { waitUrl: true, suggest: null });
+    const t = await safe(() => api('POST', `/projects/${pid}/terminals`, { title: 'App', command: r.command }));
+    if (!t) { setStarting(false); return; }
+    set({ terms: { ...S.terms, [pid]: [...(S.terms[pid] || []), t] } });
+    toast(`App startet (${r.command}) … die Vorschau erscheint, sobald der Server läuft.`);
+    setTimeout(() => setStarting(s => { if (s) toast('Der Server braucht länger. Schau im Tab „Terminal“ nach, was passiert.', 'err'); return false; }), 90000);
+  };
 
   const reload = (auto) => {
     setErrors([]);
     setSel(null);
     setBridge(null);
+    setNeedsServer(false);
     setPreview(pid, { nonce: (previewOf(pid).nonce || 0) + 1 });
     if (auto) setFlash(f => f + 1);
   };
@@ -106,7 +131,10 @@ function Preview({ pid }) {
       if (m.type === 'files:changed' && m.projectId === pid) { m.paths.forEach(p => paths.add(p)); run(); }
       if (m.type === 'preview:url' && m.projectId === pid) {
         const cur = previewOf(pid);
-        if (!cur.mode) { setPreview(pid, { mode: 'url', url: m.url, suggest: null }); setUrlInput(m.url); }
+        if (!cur.mode || cur.waitUrl) {
+          setPreview(pid, { mode: 'url', url: m.url, suggest: null, waitUrl: false, hmr: !!runRef.current?.hmr, nonce: (cur.nonce || 0) + 1 });
+          setUrlInput(m.url); setStarting(false); setDown(false); setNeedsServer(false);
+        }
         else if (cur.url !== m.url || cur.mode !== 'url') setPreview(pid, { suggest: m.url });
       }
     });
@@ -136,6 +164,7 @@ function Preview({ pid }) {
         setSel(s => s && { ...s, x: off.x + d.rect.x, y: off.y + d.rect.y, w: d.rect.w, h: d.rect.h });
       }
       if (d.type === 'pick-cancel') { setSel(null); setPreview(pid, { edit: false }); }
+      if (d.type === 'needs-server') setNeedsServer(true);
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
@@ -156,7 +185,12 @@ function Preview({ pid }) {
     if (cur.mode === 'file') {
       const r = await api('GET', `/projects/${pid}/exists?path=${encodeURIComponent(cur.file)}`).catch(() => null);
       setMissing(r ? !r.exists : false);
-    } else setMissing(false);
+    } else {
+      setMissing(false);
+      // Läuft der lokale App-Server überhaupt? (Sonst zeigt der Browser nur eine Fehlerseite.)
+      const pr = await api('GET', `/probe?url=${encodeURIComponent(cur.url)}`).catch(() => null);
+      setDown(pr?.up === false);
+    }
     setTimeout(() => setBridge(b => (b === true ? true : false)), 1500);
   };
 
@@ -253,8 +287,13 @@ function Preview({ pid }) {
         <button class=${'icon-btn' + (pv.device === 'tablet' ? ' on' : '')} title="Tablet" onClick=${() => setPreview(pid, { device: 'tablet' })}><${Icon} n="tablet" /></button>
         <button class=${'icon-btn' + (pv.device === 'mobile' ? ' on' : '')} title="Handy" onClick=${() => setPreview(pid, { device: 'mobile' })}><${Icon} n="phone" /></button>
         <button class="icon-btn" title="Im Browser öffnen" onClick=${openExt}><${Icon} n="ext" /></button>`}
+      ${run?.server && pv.mode !== 'sim' && (pv.mode !== 'url' || down) && html`<button class="btn sm primary" disabled=${starting}
+        title=${`App mit eigenem Server starten: ${run.command}`} onClick=${startApp}>${starting ? html`<span class="spin"></span> Startet…` : html`<${Icon} n="play" /> App starten`}</button>`}
       <button class="icon-btn" title="Veröffentlichen (Railway)" onClick=${() => set({ modal: { type: 'publish' } })}><${Icon} n="up" /></button>
     </div>
+    ${(needsServer || down) && !starting && html`<div class="suggest"><${Icon} n="play" size="14" />
+      <span class="grow">${down ? `Die App unter ${pv.url} läuft gerade nicht.` : 'Diese App braucht ihren eigenen Server, eine einfache Datei-Vorschau reicht nicht.'}</span>
+      <button class="btn sm primary" onClick=${startApp}>${run?.command ? `▶ Starten (${run.command.replace(/^.*&& /, '')})` : 'Claude soll sie starten'}</button></div>`}
     ${pv.suggest && html`<div class="suggest"><${Icon} n="zap" size="14" /> Server erkannt: <b class="mono">${pv.suggest}</b><span class="spacer"></span>
       <button class="btn sm primary" onClick=${() => { setPreview(pid, { mode: 'url', url: pv.suggest, suggest: null }); setUrlInput(pv.suggest); }}>Anzeigen</button>
       <button class="icon-btn" onClick=${() => setPreview(pid, { suggest: null })}><${Icon} n="x" /></button></div>`}
@@ -280,9 +319,17 @@ function Preview({ pid }) {
               ${sim.status?.available !== false && html`<button class="btn primary" onClick=${() => sendPrompt('Baue die iOS-App dieses Projekts und starte sie im iOS-Simulator (xcodebuild + xcrun simctl). Öffne vorher den Simulator, falls keiner läuft.')}>Claude: App bauen & starten</button>`}</div>`)
         : src
           ? html`<iframe key=${pv.mode + (pv.mode === 'file' ? pv.file : pv.url) + ':' + (pv.nonce || 0)} ref=${frame} src=${src} onLoad=${onLoad} allow="clipboard-write; fullscreen"></iframe>`
-          : html`<div class="empty"><div class="big">👀</div><h3>Live-Vorschau</h3>
+          : run?.server
+            ? html`<div class="empty"><div class="big">▶️</div><h3>${run.framework || 'App'} starten</h3>
+                <p>Diese App hat einen eigenen Server. Flint startet ihn im Terminal und zeigt die App hier, sobald sie läuft.</p>
+                <p class="mono small">${run.command}</p>
+                <button class="btn primary" disabled=${starting} onClick=${startApp}>${starting ? 'Startet…' : '▶ App starten'}</button></div>`
+            : html`<div class="empty"><div class="big">👀</div><h3>Live-Vorschau</h3>
               <p>Sobald Claude eine HTML-Datei anlegt oder einen Server startet, erscheint sie hier und aktualisiert sich bei jeder Änderung.</p>
               <p class="small">Oder oben eine Adresse eingeben, z. B. <span class="mono">localhost:3000</span>.</p></div>`}
+      ${starting && html`<div class="empty" style="position:absolute;inset:0;background:var(--bg);max-width:none;display:grid;place-content:center">
+        <div class="spin" style="margin:0 auto"></div><h3>App startet…</h3><p class="mono small">${run?.command}</p>
+        <p class="small">Beim ersten Mal werden Pakete installiert, das kann eine Minute dauern. Fortschritt im Tab „Terminal“.</p></div>`}
       ${missing && html`<div class="empty" style="position:absolute;inset:0;background:var(--bg);max-width:none;display:grid;place-content:center"><div class="spin" style="margin:0 auto"></div><h3>Warte auf ${pv.file}</h3><p>Die Datei existiert noch nicht. Sobald Claude sie schreibt, erscheint sie hier.</p></div>`}
       ${sel && html`<${EditPop} sel=${sel} where=${where} stage=${stageRef.current} sim=${pv.mode === 'sim'}
         onDone=${() => { setSel(null); post({ type: 'clear' }); if (previewOf(pid).edit) post({ type: 'pick', on: true }); }}

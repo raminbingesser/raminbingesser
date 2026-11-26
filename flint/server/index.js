@@ -329,6 +329,38 @@ api.post('/sessions/:sid/permission/:req', wrap((req) => agents.answerPermission
 api.get('/projects/:pid/files', wrap((req) => files.listDir(project(req).path, req.query.path || '')));
 api.get('/projects/:pid/file', wrap((req) => files.readFile(project(req).path, req.query.path)));
 api.put('/projects/:pid/file', wrap((req) => files.writeFile(project(req).path, req.body.path, req.body.text)));
+// Wie startet man diese App? (package.json-Skripte, Paketmanager, Python)
+api.get('/projects/:pid/runinfo', wrap((req) => {
+  const dir = project(req).path;
+  const has = (f) => fs.existsSync(path.join(dir, f));
+  let pkg = null;
+  try { pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); } catch { }
+  if (pkg) {
+    const scripts = pkg.scripts || {};
+    const script = ['dev', 'start', 'serve', 'preview'].find(s => scripts[s]);
+    const pm = has('pnpm-lock.yaml') ? 'pnpm' : has('yarn.lock') ? 'yarn' : (has('bun.lockb') || has('bun.lock')) ? 'bun' : 'npm';
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    const framework = deps.next ? 'Next.js' : deps.vite ? 'Vite' : deps['react-scripts'] ? 'React' : deps.astro ? 'Astro' : deps['@sveltejs/kit'] ? 'SvelteKit' : deps.express ? 'Express' : null;
+    if (!script) return { server: false };
+    const install = has('node_modules') ? '' : `${pm} install && `;
+    return { server: true, script, pm, framework, command: `${install}${pm} run ${script}`, hmr: ['Next.js', 'Vite', 'Astro', 'SvelteKit', 'React'].includes(framework) };
+  }
+  if (has('manage.py')) return { server: true, framework: 'Django', command: 'python3 manage.py runserver', hmr: false };
+  return { server: false };
+}));
+
+// Ist eine lokale App-Adresse gerade erreichbar? (nur localhost)
+api.get('/probe', wrap(async (req) => {
+  let u;
+  try { u = new URL(String(req.query.url)); } catch { return { up: false }; }
+  if (!['localhost', '127.0.0.1', '0.0.0.0', '[::1]'].includes(u.hostname)) return { up: null };
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 1500);
+  try { await fetch(u.origin + '/', { signal: ctrl.signal, redirect: 'manual' }); return { up: true }; }
+  catch { return { up: false }; }
+  finally { clearTimeout(t); }
+}));
+
 api.get('/projects/:pid/exists', wrap((req) => {
   const f = files.resolveIn(project(req).path, String(req.query.path || ''));
   return { exists: fs.existsSync(f) && (fs.statSync(f).isFile() || fs.existsSync(path.join(f, 'index.html'))) };
@@ -486,6 +518,17 @@ preview.get(`/p/${PTOKEN}/:pid/*`, (req, res) => {
     // 'allow', weil Varianten unter ~/.flint liegen; versteckte Pfadteile sind oben schon abgewiesen.
     res.sendFile(f, { dotfiles: 'allow' });
   } catch (e) { res.status(400).send(e.message); }
+});
+// Alles andere (z. B. /dashboard einer App mit eigenem Server): verständlicher Hinweis
+// statt "Cannot GET", und Flint bekommt Bescheid, dass die App gestartet werden muss.
+preview.use((req, res) => {
+  const p = String(req.path).replace(/[<>&"]/g, '');
+  res.status(404).type('html').send(`<!doctype html><meta charset="utf-8">${BRIDGE}
+<body style="font:15px/1.5 -apple-system,system-ui,sans-serif;color:#555;padding:32px;max-width:560px">
+<h3 style="color:#222;margin:0 0 8px">Diese App braucht ihren eigenen Server</h3>
+<p>Die Seite <code>${p}</code> wird von der App selbst ausgeliefert, nicht als einfache Datei.
+Starte die App über <b>„▶ App starten“</b> oben in der Vorschau.</p>
+<script>parent.postMessage({ flint: true, type: 'needs-server', path: location.pathname }, '*');</script></body>`);
 });
 const previewServer = http.createServer(preview);
 previewServer.on('error', (e) => console.warn(`[flint] Vorschau-Port ${PREVIEW_PORT} nicht verfügbar: ${e.message}`));
