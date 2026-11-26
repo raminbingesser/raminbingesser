@@ -142,7 +142,7 @@ function Sidebar() {
     </div>
     <div class="side-actions">
       <button class="btn primary block" onClick=${() => set({ modal: { type: 'new' } })}><${Icon} n="plus" /> Neues Projekt</button>
-      <button class="btn block" onClick=${() => set({ modal: { type: 'open' } })}><${Icon} n="folder" /> Öffnen / aus GitHub</button>
+      <button class="btn block" onClick=${() => set({ modal: { type: 'open' } })}><${Icon} n="search" /> Projekt öffnen <span class="spacer"></span><span class="kbd" style="color:var(--muted)">${mod}O</span></button>
     </div>
     <div class="side-scroll">
       <div class="sect"><span>Projekte</span></div>
@@ -170,7 +170,7 @@ function Welcome() {
     <p class="lead">Flint baut mit Claude deine Dashboards, Tools und Webseiten. Du sprichst oder klickst auf das, was sich ändern soll, und siehst es live.</p>
     <div class="tiles">
       <button class="tile" onClick=${() => set({ modal: { type: 'new' } })}><div class="ti"><${Icon} n="chart" /></div><b>Neues Dashboard oder Tool</b><span>Vorlage wählen, beschreiben, zusehen.</span></button>
-      <button class="tile" onClick=${() => set({ modal: { type: 'open' } })}><div class="ti"><${Icon} n="folder" /></div><b>Bestehendes Projekt öffnen</b><span>Ordner auf dem Mac oder aus GitHub.</span></button>
+      <button class="tile" onClick=${() => set({ modal: { type: 'open' } })}><div class="ti"><${Icon} n="folder" /></div><b>Projekt öffnen</b><span>Einfach beschreiben, z. B. „umsatz dashboard“. Flint findet es.</span></button>
       <button class="tile" onClick=${() => set({ modal: { type: 'mcp' } })}><div class="ti"><${Icon} n="plug" /></div><b>Tools verbinden</b><span>Higgsfield, Playwright, Notion, Supabase …</span></button>
     </div>
     <div class="status-card">
@@ -237,6 +237,7 @@ function App() {
       const key = e.key.toLowerCase();
       if (key === 'k') { e.preventDefault(); set({ modal: S.modal?.type === 'palette' ? null : { type: 'palette' } }); }
       else if (key === 't' && S.activePid) { e.preventDefault(); newSession(); }
+      else if (key === 'o') { e.preventDefault(); set({ modal: { type: 'open' } }); }
       else if (key === 'b') { e.preventDefault(); set({ showSide: !S.showSide }); persist(); }
       else if (key === 'j') { e.preventDefault(); set({ showWork: !S.showWork }); persist(); }
       else if (key === 'e' && S.activePid) {

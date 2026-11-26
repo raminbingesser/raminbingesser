@@ -126,9 +126,22 @@ function OpenFolder() {
     close();
     toast(`${p.name} geöffnet`);
   };
-  return html`<${Modal} title="Ordner öffnen" wide foot=${html`
+  const [tab, setTab] = useState('find');
+  return html`<${Modal} title="Projekt öffnen" wide foot=${tab === 'browse' ? html`
     <button class="btn" onClick=${close}>Abbrechen</button>
-    <button class="btn primary" disabled=${!cur} onClick=${() => open(cur.dir)}>Diesen Ordner öffnen</button>`}>
+    <button class="btn primary" disabled=${!cur} onClick=${() => open(cur.dir)}>Diesen Ordner öffnen</button>` : null}>
+    <div class="row" style="gap:4px;margin-bottom:12px">
+      ${[['find', 'Beschreiben', 'search'], ['browse', 'Ordner wählen', 'folder'], ['git', 'Aus GitHub', 'git']].map(([k, l, i]) =>
+        html`<button class=${'btn sm' + (tab === k ? ' on' : '')} onClick=${() => setTab(k)}><${Icon} n=${i} /> ${l}</button>`)}
+    </div>
+    ${tab === 'find' && html`<${FindProject} onOpen=${open} />`}
+    ${tab === 'git' && html`
+      <div class="row">
+        <input class="field mono grow" autofocus placeholder="https://github.com/name/repo" value=${gitUrl} onInput=${(e) => setGitUrl(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter' && gitUrl.trim()) clone(); }} />
+        <button class="btn primary" disabled=${!gitUrl.trim() || cloning} onClick=${clone}>${cloning ? 'Lade…' : 'Laden'}</button>
+      </div>
+      <div class="hint">Landet in <span class="mono">${S.info?.defaultDir}/…</span>. Private Repos funktionieren mit deinem Git-Login auf dem Mac.</div>`}
+    ${tab === 'browse' && html`
     <div class="row"><input class="field mono" value=${path} onInput=${(e) => setPath(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter') load(path); }} />
       <button class="btn" onClick=${() => load(path)}>Gehe zu</button></div>
     <div class="hint">Jeder Ordner auf deinem Mac kann ein Projekt sein, auch einer, an dem du in der Claude Desktop App arbeitest.</div>
@@ -140,14 +153,90 @@ function OpenFolder() {
     <div class="row" style="margin-top:10px">
       <input class="field" placeholder="Neuer Ordner hier…" value=${newName} onInput=${(e) => setNewName(e.target.value)} />
       <button class="btn" disabled=${!newName.trim()} onClick=${() => open(cur.dir + '/' + newName.trim(), true)}>Anlegen & öffnen</button>
-    </div>
-    <label class="lbl" style="margin-top:18px">Oder aus GitHub laden</label>
-    <div class="row">
-      <input class="field mono grow" placeholder="https://github.com/name/repo" value=${gitUrl} onInput=${(e) => setGitUrl(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter' && gitUrl.trim()) clone(); }} />
-      <button class="btn primary" disabled=${!gitUrl.trim() || cloning} onClick=${clone}>${cloning ? 'Lade…' : 'Laden'}</button>
-    </div>
-    <div class="hint">Landet in <span class="mono">${S.info?.defaultDir}/…</span>. Private Repos funktionieren mit deinem Git-Login auf dem Mac.</div>
+    </div>`}
   </${Modal}>`;
+}
+
+// Projekt per Beschreibung finden
+export function relTime(t) {
+  if (!t) return '';
+  const d = (Date.now() - t) / 1000;
+  if (d < 3600) return 'gerade eben';
+  if (d < 86400) return `vor ${Math.round(d / 3600)} Std.`;
+  if (d < 86400 * 2) return 'gestern';
+  if (d < 86400 * 30) return `vor ${Math.round(d / 86400)} Tagen`;
+  if (d < 86400 * 365) return `vor ${Math.round(d / 86400 / 30)} Mon.`;
+  return `vor ${Math.round(d / 86400 / 365)} J.`;
+}
+
+export async function openProjectPath(dir, existingId) {
+  if (existingId && S.projects.find(x => x.id === existingId)) {
+    selectProject(existingId); close(); return;
+  }
+  const p = await safe(() => api('POST', '/projects', { dir }));
+  if (!p) return;
+  set({ projects: S.projects.find(x => x.id === p.id) ? S.projects : [...S.projects, p] });
+  selectProject(p.id);
+  close();
+  toast(`${p.name} geöffnet`);
+}
+
+function FindProject() {
+  const [q, setQ] = useState('');
+  const [res, setRes] = useState(null);
+  const [sel, setSel] = useState(0);
+  const [ai, setAi] = useState(false);
+  const [aiTried, setAiTried] = useState(false);
+  const inp = useRef();
+  const seq = useRef(0);
+  useEffect(() => { setTimeout(() => inp.current?.focus(), 40); }, []);
+  useEffect(() => {
+    const n = ++seq.current;
+    setAiTried(false);
+    const t = setTimeout(() => {
+      api('GET', '/find?q=' + encodeURIComponent(q)).then(r => { if (n === seq.current) { setRes(r); setSel(0); } }).catch(() => setRes([]));
+    }, q ? 160 : 0);
+    return () => clearTimeout(t);
+  }, [q]);
+  const askClaude = async () => {
+    if (!q.trim()) return;
+    setAi(true);
+    const r = await safe(() => api('POST', '/find/ai', { q }));
+    setAi(false); setAiTried(true);
+    if (r) { setRes(r); setSel(0); if (!r.length) toast('Claude hat nichts Passendes gefunden.', 'err'); }
+  };
+  const list = res || [];
+  const key = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSel(Math.min(sel + 1, list.length - 1)); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setSel(Math.max(sel - 1, 0)); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (list[sel] && (!q || list[sel].score > 0)) openProjectPath(list[sel].path, list[sel].open);
+      else askClaude();
+    }
+  };
+  return html`<div>
+    <div class="row">
+      <input ref=${inp} class="field" style="font-size:15px;padding:10px 12px" placeholder="Welches Projekt? z. B. „umsatz dashboard“ oder „das Tool für die Rechnungen“"
+        value=${q} onInput=${(e) => setQ(e.target.value)} onKeyDown=${key} />
+      <button class="btn" title="Claude sucht anhand deiner Beschreibung" disabled=${!q.trim() || ai} onClick=${askClaude}>${ai ? html`<span class="spin"></span>` : html`<${Icon} n="spark" />`} Claude fragen</button>
+    </div>
+    <div class="hint">${q ? 'Enter öffnet den ersten Treffer. Nichts dabei? „Claude fragen“ versteht auch vage Beschreibungen.' : 'Zuletzt benutzt: Ordner aus Claude Code (Terminal & Desktop App), Flint und deinen Projektordnern.'}</div>
+    <div class="list" style="margin-top:10px;max-height:380px;overflow:auto">
+      ${res === null && html`<div class="list-item"><span class="spin"></span> Suche Projekte auf deinem Mac…</div>`}
+      ${res && !list.length && html`<div class="list-item muted">${q ? (aiTried ? 'Nichts gefunden. Versuch es mit anderen Worten oder wähle den Ordner direkt.' : 'Kein direkter Treffer. Drück Enter oder „Claude fragen“.') : 'Keine Projekte gefunden. Wähle den Ordner direkt.'}</div>`}
+      ${list.map((p, i) => html`<div key=${p.path} class=${'list-item click' + (i === sel ? ' sel' : '')} style=${i === sel ? 'background:var(--panel-2)' : ''}
+          onMouseEnter=${() => setSel(i)} onClick=${() => openProjectPath(p.path, p.open)}>
+        <${Icon} n=${p.kinds.includes('iOS/Swift') ? 'phone' : 'folder'} size="16" />
+        <div class="grow" style="min-width:0">
+          <div class="row" style="gap:6px"><b>${p.name}</b>${p.ai && html`<span class="pill warn">Claude</span>`}${p.open && html`<span class="pill ok">in Flint</span>`}
+            ${p.kinds.map(k => html`<span class="pill">${k}</span>`)}<span class="spacer"></span><span class="muted small">${relTime(p.lastUsed)}</span></div>
+          ${p.description && html`<div class="small" style="color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.description}</div>`}
+          <div class="mono muted" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.short}</div>
+        </div>
+      </div>`)}
+    </div>
+  </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -372,10 +461,17 @@ function Update() {
 function Palette() {
   const [q, setQ] = useState('');
   const [i, setI] = useState(0);
+  const [onMac, setOnMac] = useState([]);
+  // Projekte auf dem Mac, die noch nicht in Flint sind
+  useEffect(() => {
+    if (q.trim().length < 2) { setOnMac([]); return; }
+    const t = setTimeout(() => api('GET', '/find?q=' + encodeURIComponent(q)).then(r => setOnMac(r.filter(p => !p.open).slice(0, 6))).catch(() => { }), 180);
+    return () => clearTimeout(t);
+  }, [q]);
   const items = useMemo(() => {
     const acts = [
       { label: 'Neues Projekt', d: 'Dashboard, Tool, Webseite…', run: () => set({ modal: { type: 'new' } }) },
-      { label: 'Ordner öffnen', d: 'Vorhandenes Projekt', run: () => set({ modal: { type: 'open' } }) },
+      { label: 'Projekt öffnen', d: 'Beschreiben, Ordner wählen oder aus GitHub', k: `${mod}O`, run: () => set({ modal: { type: 'open' } }) },
       S.activePid && { label: 'Neue Sitzung', d: project()?.name, k: `${mod}T`, run: () => { close(); newSession(); } },
       S.activePid && { label: 'Claude im Terminal', d: 'Claude Code direkt', run: async () => { close(); const { openTerminal } = await import('./work.js'); openTerminal(S.activePid, 'claude', { title: 'Claude Code' }); } },
       { label: 'MCP & Tools', d: 'Higgsfield, Playwright, Notion…', run: () => set({ modal: { type: 'mcp' } }) },
@@ -389,8 +485,11 @@ function Palette() {
     }));
     const projs = S.projects.map(p => ({ sect: 'Projekte', label: p.name, d: p.path, run: () => { close(); selectProject(p.id); } }));
     const f = q.toLowerCase().trim();
-    return [...acts, ...sess, ...projs].filter(x => !f || (x.label + ' ' + (x.d || '')).toLowerCase().includes(f));
-  }, [q]);
+    const mac = onMac.map(p => ({ sect: 'Auf deinem Mac', label: p.name, d: p.description || p.short, run: () => openProjectPath(p.path, p.open) }));
+    const match = (x) => !f || (x.label + ' ' + (x.d || '')).toLowerCase().includes(f);
+    // Bei einer Suche zuerst Projekte, dann Sitzungen, dann Aktionen
+    return f ? [...projs.filter(match), ...mac, ...sess.filter(match), ...acts.filter(match)] : [...acts, ...sess, ...projs];
+  }, [q, onMac]);
   useEffect(() => setI(0), [q]);
   const input = useRef();
   useEffect(() => {

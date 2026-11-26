@@ -20,6 +20,7 @@ import * as files from './files.js';
 import * as brain from './brain.js';
 import * as claude from './claude.js';
 import * as variants from './variants.js';
+import * as finder from './finder.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
@@ -161,6 +162,11 @@ api.post('/projects', wrap((req) => {
   broadcast({ type: 'project:added', project: p });
   return p;
 }));
+
+// Projekt per Beschreibung finden (lokal, optional mit Claude).
+api.get('/find', wrap((req) => finder.search(String(req.query.q || ''), 12)));
+api.post('/find/ai', wrap(async (req) => finder.aiSearch(String(req.body.q || ''), MOCK)));
+api.post('/find/rescan', wrap(() => finder.scan(true).length));
 
 // Projekt aus GitHub (oder einer anderen Git-Adresse) laden.
 api.post('/clone', wrap(async (req) => {

@@ -27,6 +27,7 @@ Links sprichst du mit Claude (tippen oder per Mikrofon), rechts siehst du **live
 | **MCP & Tools** | Jeden MCP-Server verbinden (Higgsfield, Playwright, Notion, Supabase …), inklusive Anmeldung. Gilt auch für Claude Code im Terminal und in der Desktop App. |
 | **Tresor** | API-Keys verschlüsselt auf dem Mac. Agenten bekommen sie als Umgebungsvariablen, nie in Dateien. |
 | **Veröffentlichen** | Mit Railway: Claude deployed das Projekt mit der Railway-CLI und nennt dir die Adresse. |
+| **Projekt öffnen per Beschreibung** | ⌘O und z. B. „umsatz dashboard“ tippen. Flint kennt alle Ordner, in denen du mit Claude Code gearbeitet hast (Terminal & Desktop App), und deine üblichen Projektordner. Bei vagen Beschreibungen („die App für Sport“) sucht Claude mit. Auch in der ⌘K-Suche. |
 | **Projekte laden** | Neue Projekte aus Vorlagen (Dashboard, Tool, Webseite, React-App), jeden Ordner auf dem Mac öffnen oder aus GitHub laden. |
 | **Bilder & Sprache** | Screenshots einfügen oder hineinziehen. Diktat auf Deutsch über das Mikrofon. |
 | **Suche** | ⌘K für alles: Sitzungen, Projekte, Aktionen. |
