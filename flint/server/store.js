@@ -25,7 +25,7 @@ const DEFAULT_PROMPTS = [
 
 const empty = () => ({
   projects: [], sessions: {},
-  settings: { defaultModel: 'claude-opus-5-5', defaultEffort: 'high', defaultPermission: 'acceptEdits', notifications: true, prompts: DEFAULT_PROMPTS },
+  settings: { defaultModel: 'claude-sonnet-5-5', defaultEffort: 'medium', speedDefaults: true, defaultPermission: 'acceptEdits', notifications: true, prompts: DEFAULT_PROMPTS },
 });
 
 let state = empty();
@@ -33,6 +33,12 @@ try {
   const saved = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
   const base = empty();
   state = { ...base, ...saved, settings: { ...base.settings, ...(saved.settings || {}) } };
+  // Einmalig: schnellere Standards (Sonnet 5.5, mittlere Denktiefe). Opus bleibt pro Sitzung wählbar.
+  if (!state.settings.speedDefaults) {
+    state.settings.defaultModel = 'claude-sonnet-5-5';
+    state.settings.defaultEffort = 'medium';
+    state.settings.speedDefaults = true;
+  }
 } catch { /* erster Start */ }
 
 let saveTimer = null;

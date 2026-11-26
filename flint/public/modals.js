@@ -422,7 +422,7 @@ function Settings({ section }) {
       <select class="field" value=${st.defaultEffort} onChange=${(e) => save({ defaultEffort: e.target.value })}>${EFFORTS.map(([v, l]) => html`<option value=${v}>${l}</option>`)}</select>
       <select class="field" value=${st.defaultPermission} onChange=${(e) => save({ defaultPermission: e.target.value })}>${PERMS.map(([v, l]) => html`<option value=${v}>${l}</option>`)}</select>
     </div>
-    <div class="hint">Opus 5.5 ist am stärksten. Sonnet 5.5 ist schneller und schont dein Kontingent. Haiku 5.5 für Kleinigkeiten. „Dateien automatisch“ heißt: Claude darf Dateien ändern, fragt aber vor Befehlen.</div>
+    <div class="hint">Sonnet 5.5 (Standard) ist schnell und reicht für Design und die meisten Aufgaben. Opus 5.5 für schwierige Logik. Haiku 5.5 für Kleinigkeiten. „Dateien automatisch“ heißt: Claude darf Dateien ändern, fragt aber vor Befehlen.</div>
 
     <label class="lbl">Darstellung</label>
     <div class="row">

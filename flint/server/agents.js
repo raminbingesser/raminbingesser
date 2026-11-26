@@ -179,6 +179,9 @@ export async function interrupt(sid) {
   // Läuft die Abfrage noch nicht (Start), merken und gleich nach dem Start abbrechen.
   if (!r.query) { r.cancelled = true; r.abort?.abort(); return; }
   try { await r.query.interrupt(); } catch { r.abort?.abort(); }
+  // Warme Sitzung: kommt nach dem Abbrechen keine Abschlussmeldung, Durchgang trotzdem beenden.
+  const live = r.live;
+  if (live) setTimeout(() => { if (live.turnDone) { const d = live.turnDone; live.turnDone = null; d(); } }, 4000);
 }
 
 export function answerPermission(sid, reqId, decision, answers) {
@@ -204,6 +207,7 @@ export function isBusy(sid) { return runtime(sid).status !== 'idle'; }
 
 export function forget(sid) {
   interrupt(sid);
+  closeLive(sid);
   rt.delete(sid);
 }
 
@@ -219,23 +223,8 @@ function pump(sid) {
   runTurn(sid, item.text).finally(() => pump(sid));
 }
 
-async function runTurn(sid, text) {
-  const s = store.getSession(sid);
-  const project = s && store.getProject(s.projectId);
-  if (!s || !project) return;
-  const r = runtime(sid);
-  setStatus(sid, 'running');
-  record(sid, { type: 'user', text });
-  if (s.title === 'Neue Sitzung') {
-    const wish = text.match(/Gewünschte Änderung: (.+)/);
-    const t = wish ? 'Ändern: ' + wish[1] : text;
-    store.updateSession(sid, { title: t.replace(/\s+/g, ' ').slice(0, 48) });
-    emit({ type: 'session:updated', session: store.getSession(sid) });
-  }
-
-  const abort = new AbortController();
-  r.abort = abort;
-  r.cancelled = false;
+// Optionen für Claude Code einer Sitzung (Modell, Rechte, System-Prompt …).
+async function buildOptions(sid, s, project, r, abort) {
   const vaultEnv = envFor(project.variantOf || project.id); // Varianten erben die Schlüssel
   const options = {
     cwd: project.path,
@@ -302,85 +291,193 @@ async function runTurn(sid, text) {
     } catch (e) { console.warn('[flint] Helfer-Werkzeuge nicht verfügbar:', e.message); }
   }
 
-  let streamed = '';
-  try {
-    const query = await getQuery();
-    if (r.cancelled) throw new Error('aborted');
-    const q = query({ prompt: text, options });
-    r.query = q;
-    for await (const m of q) {
-      if (!store.getSession(sid)) { try { await q.interrupt(); } catch { } break; } // gelöscht
-      if (m.session_id && m.session_id !== store.getSession(sid)?.claudeSessionId) {
-        store.updateSession(sid, { claudeSessionId: m.session_id });
-      }
-      if (m.type === 'stream_event') {
-        const ev = m.event;
-        if (!m.parent_tool_use_id && ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
-          streamed += ev.delta.text;
-          emit({ type: 'session:delta', sid, text: ev.delta.text });
-        }
-        continue;
-      }
-      if (m.type === 'assistant') {
-        const sub = !!m.parent_tool_use_id;
-        for (const b of m.message?.content || []) {
-          if (b.type === 'text' && b.text.trim()) {
-            record(sid, { type: 'text', text: b.text, sub });
-            scanUrls(project.id, b.text, true);
-          } else if (b.type === 'tool_use') {
-            record(sid, { type: 'tool_use', id: b.id, name: b.name, input: clip(JSON.stringify(b.input, null, 2), 4000), sub });
-          }
-        }
-        streamed = '';
-        emit({ type: 'session:delta-reset', sid });
-        if (m.error) record(sid, { type: 'error', message: `API-Fehler: ${m.error}` });
-        continue;
-      }
-      if (m.type === 'user') {
-        const content = m.message?.content;
-        if (Array.isArray(content)) {
-          for (const b of content) {
-            if (b.type !== 'tool_result') continue;
-            const t = toolResultText(b.content);
-            record(sid, { type: 'tool_result', toolUseId: b.tool_use_id, text: clip(t, 4000), isError: !!b.is_error, sub: !!m.parent_tool_use_id });
-            scanUrls(project.id, t);
-          }
-        }
-        continue;
-      }
-      if (m.type === 'result') {
-        const u = m.usage || {};
-        if (!store.getSession(sid)) continue;
-        const cur = store.getSession(sid).usage || { costUsd: 0, inputTokens: 0, outputTokens: 0, turns: 0 };
-        const usage = {
-          costUsd: cur.costUsd + (m.total_cost_usd || 0),
-          inputTokens: cur.inputTokens + (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0),
-          outputTokens: cur.outputTokens + (u.output_tokens || 0),
-          turns: cur.turns + (m.num_turns || 0),
-        };
-        store.updateSession(sid, { usage });
-        emit({ type: 'session:updated', session: store.getSession(sid) });
-        const failed = m.subtype !== 'success' || m.is_error;
-        record(sid, {
-          type: 'result',
-          isError: failed,
-          message: failed ? (m.errors?.join('\n') || m.result || m.subtype) : null,
-          costUsd: m.total_cost_usd || 0,
-          durationMs: m.duration_ms,
-          turns: m.num_turns,
-        });
+  return options;
+}
+
+// Ändert sich etwas davon, muss ein offener Claude-Prozess neu gestartet werden.
+const fingerprint = (o) => JSON.stringify([o.effort, o.settingSources || null, o.cwd, !!o.mcpServers, (o.systemPrompt?.append || '').length]);
+
+// Eine Nachricht von Claude verarbeiten (Text, Werkzeuge, Ergebnis).
+function handleMessage(sid, project, m, ctx) {
+  if (m.session_id && m.session_id !== store.getSession(sid)?.claudeSessionId) {
+    store.updateSession(sid, { claudeSessionId: m.session_id });
+  }
+  if (m.type === 'stream_event') {
+    const ev = m.event;
+    if (!m.parent_tool_use_id && ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+      ctx.streamed += ev.delta.text;
+      emit({ type: 'session:delta', sid, text: ev.delta.text });
+    }
+    return;
+  }
+  if (m.type === 'assistant') {
+    const sub = !!m.parent_tool_use_id;
+    for (const b of m.message?.content || []) {
+      if (b.type === 'text' && b.text.trim()) {
+        record(sid, { type: 'text', text: b.text, sub });
+        scanUrls(project.id, b.text, true);
+      } else if (b.type === 'tool_use') {
+        record(sid, { type: 'tool_use', id: b.id, name: b.name, input: clip(JSON.stringify(b.input, null, 2), 4000), sub });
       }
     }
+    ctx.streamed = '';
+    emit({ type: 'session:delta-reset', sid });
+    if (m.error) record(sid, { type: 'error', message: `API-Fehler: ${m.error}` });
+    return;
+  }
+  if (m.type === 'user') {
+    const content = m.message?.content;
+    if (Array.isArray(content)) {
+      for (const b of content) {
+        if (b.type !== 'tool_result') continue;
+        const t = toolResultText(b.content);
+        record(sid, { type: 'tool_result', toolUseId: b.tool_use_id, text: clip(t, 4000), isError: !!b.is_error, sub: !!m.parent_tool_use_id });
+        scanUrls(project.id, t);
+      }
+    }
+    return;
+  }
+  if (m.type === 'result') {
+    const u = m.usage || {};
+    if (!store.getSession(sid)) return;
+    const cur = store.getSession(sid).usage || { costUsd: 0, inputTokens: 0, outputTokens: 0, turns: 0 };
+    const usage = {
+      costUsd: cur.costUsd + (m.total_cost_usd || 0),
+      inputTokens: cur.inputTokens + (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0),
+      outputTokens: cur.outputTokens + (u.output_tokens || 0),
+      turns: cur.turns + (m.num_turns || 0),
+    };
+    store.updateSession(sid, { usage });
+    emit({ type: 'session:updated', session: store.getSession(sid) });
+    const failed = m.subtype !== 'success' || m.is_error;
+    record(sid, {
+      type: 'result',
+      isError: failed,
+      message: failed ? (m.errors?.join('\n') || m.result || m.subtype) : null,
+      costUsd: m.total_cost_usd || 0,
+      durationMs: m.duration_ms,
+      turns: m.num_turns,
+    });
+  }
+}
+
+// ---- Warme Sitzungen ----------------------------------------------------------
+// Pro Sitzung bleibt ein Claude-Code-Prozess offen (wie in der Desktop App);
+// neue Nachrichten gehen direkt hinein, statt jedes Mal neu zu starten.
+const IDLE_CLOSE_MS = 15 * 60 * 1000;
+
+function inputStream() {
+  const buf = [];
+  let wake = null, done = false;
+  async function* gen() {
+    while (!done) {
+      if (buf.length) { yield buf.shift(); continue; }
+      await new Promise(res => { wake = res; });
+      wake = null;
+    }
+  }
+  return { iter: gen(), push(m) { buf.push(m); wake?.(); }, end() { done = true; wake?.(); } };
+}
+
+function closeLive(sid) {
+  const r = runtime(sid);
+  const live = r.live;
+  if (!live) return;
+  r.live = null;
+  r.query = null;
+  clearTimeout(live.idleTimer);
+  try { live.input.end(); } catch { }
+  try { live.q.close?.(); } catch { }
+  const done = live.turnDone; live.turnDone = null; done?.();
+}
+
+async function openLive(sid, project, r, options) {
+  const query = await getQuery();
+  const input = inputStream();
+  const opts = { ...options };
+  delete opts.abortController; // der Prozess lebt über mehrere Nachrichten
+  const q = query({ prompt: input.iter, options: opts });
+  const live = { q, input, fp: fingerprint(options), model: options.model, mode: options.permissionMode, turnDone: null, idleTimer: null, error: null, ctx: { streamed: '' } };
+  r.live = live;
+  r.query = q;
+  // Ein Leser für die ganze Lebensdauer des Prozesses
+  (async () => {
+    try {
+      for await (const m of q) {
+        if (!store.getSession(sid)) break;
+        handleMessage(sid, project, m, live.ctx);
+        if (m.type === 'result') { const done = live.turnDone; live.turnDone = null; done?.(); }
+      }
+    } catch (e) {
+      live.error = e;
+    } finally {
+      if (r.live === live) { r.live = null; r.query = null; }
+      const done = live.turnDone; live.turnDone = null; done?.();
+    }
+  })();
+  return live;
+}
+
+async function runTurn(sid, text) {
+  const s = store.getSession(sid);
+  const project = s && store.getProject(s.projectId);
+  if (!s || !project) return;
+  const r = runtime(sid);
+  setStatus(sid, 'running');
+  record(sid, { type: 'user', text });
+  if (s.title === 'Neue Sitzung') {
+    const wish = text.match(/Gewünschte Änderung: (.+)/);
+    const t = wish ? 'Ändern: ' + wish[1] : text;
+    store.updateSession(sid, { title: t.replace(/\s+/g, ' ').slice(0, 48) });
+    emit({ type: 'session:updated', session: store.getSession(sid) });
+  }
+
+  const abort = new AbortController();
+  r.abort = abort;
+  r.cancelled = false;
+  const ctx = { streamed: '' };
+  let live = null;
+  try {
+    const options = await buildOptions(sid, s, project, r, abort);
+    if (r.cancelled) throw new Error('aborted');
+
+    if (MOCK) {
+      // Demo-Modus: wie bisher ein Durchgang pro Nachricht
+      const query = await getQuery();
+      const q = query({ prompt: text, options });
+      r.query = q;
+      for await (const m of q) {
+        if (!store.getSession(sid)) { try { await q.interrupt(); } catch { } break; }
+        handleMessage(sid, project, m, ctx);
+      }
+      return;
+    }
+
+    // Warmen Prozess wiederverwenden oder (neu) öffnen
+    if (r.live && r.live.fp !== fingerprint(options)) closeLive(sid);
+    live = r.live || await openLive(sid, project, r, options);
+    clearTimeout(live.idleTimer);
+    if (live.model !== options.model) { try { await live.q.setModel(options.model); live.model = options.model; } catch { } }
+    if (live.mode !== options.permissionMode) { try { await live.q.setPermissionMode(options.permissionMode); live.mode = options.permissionMode; } catch { } }
+    if (r.cancelled) throw new Error('aborted');
+
+    live.error = null;
+    const turn = new Promise(res => { live.turnDone = res; });
+    live.input.push({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null, session_id: store.getSession(sid)?.claudeSessionId || '' });
+    await turn;
+    if (live.error) throw live.error;
+    if (r.live === live) live.idleTimer = setTimeout(() => closeLive(sid), IDLE_CLOSE_MS);
   } catch (e) {
     const msg = String(e?.message || e);
     // „process exited with code 1“ nach einem Anmeldefehler ist nur eine Folge davon: nicht doppelt anzeigen.
-    const authBefore = store.getSession(sid) && store.readEvents(sid).slice(-4).some(e => e.auth);
+    const authBefore = store.getSession(sid) && store.readEvents(sid).slice(-4).some(x => x.auth);
     if (!(authBefore && /exited with code/i.test(msg))) {
-      record(sid, { type: 'error', message: abort.signal.aborted ? 'Abgebrochen.' : explainError(msg), auth: AUTH_RE.test(msg) || undefined });
+      record(sid, { type: 'error', message: abort.signal.aborted || r.cancelled ? 'Abgebrochen.' : explainError(msg), auth: AUTH_RE.test(msg) || undefined });
     }
+    closeLive(sid);
   } finally {
-    if (streamed) emit({ type: 'session:delta-reset', sid });
-    r.query = null;
+    if (ctx.streamed || live?.ctx.streamed) { emit({ type: 'session:delta-reset', sid }); if (live) live.ctx.streamed = ''; }
+    if (MOCK) r.query = null;
     r.abort = null;
     for (const [reqId, p] of r.pending) { p.resolve({ behavior: 'deny', message: 'Beendet.' }); emit({ type: 'perm:resolved', sid, reqId }); }
     r.pending.clear();
