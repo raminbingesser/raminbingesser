@@ -1,18 +1,50 @@
 {
   "manifest_version": 3,
   "name": "Ändern – für Claude",
-  "version": "1.0.0",
-  "description": "Elemente deiner lokalen App anklicken und sagen, was sich ändern soll. In Claude dann einfach /aendern eingeben.",
-  "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
-  "action": { "default_title": "Ändern: Element anklicken (Alt+E)", "default_icon": { "16": "icon16.png", "48": "icon48.png" } },
-  "background": { "service_worker": "background.js" },
-  "commands": {
-    "toggle-pick": { "suggested_key": { "default": "Alt+E", "mac": "Alt+E" }, "description": "Element zum Ändern auswählen" }
+  "version": "1.1.0",
+  "description": "Elemente deiner lokalen App anklicken und sagen, was sich ändern soll. Geht direkt an Claude (/aendern).",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
   },
-  "permissions": ["storage", "clipboardWrite"],
-  "content_scripts": [{
-    "matches": ["http://localhost/*", "http://127.0.0.1/*", "http://0.0.0.0/*"],
-    "js": ["content.js"],
-    "run_at": "document_idle"
-  }]
+  "action": {
+    "default_title": "Ändern: Element anklicken (Alt+E)",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "commands": {
+    "toggle-pick": {
+      "suggested_key": {
+        "default": "Alt+E",
+        "mac": "Alt+E"
+      },
+      "description": "Element zum Ändern auswählen"
+    }
+  },
+  "permissions": [
+    "storage",
+    "clipboardWrite"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "http://0.0.0.0/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:47321/*"
+  ]
 }

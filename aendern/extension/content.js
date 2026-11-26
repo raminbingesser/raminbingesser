@@ -66,12 +66,19 @@
 
   // ---- Speichern & Zwischenablage ----------------------------------------------
   const save = () => chrome.storage.local.set({ [STORE_KEY]: items });
-  const load = () => chrome.storage.local.get(STORE_KEY).then((r) => { items = r[STORE_KEY] || []; render(); });
+  const load = () => chrome.storage.local.get(STORE_KEY).then((r) => {
+    items = r[STORE_KEY] || [];
+    // Übertragene Änderungen nach 1 Stunde aus der Liste nehmen
+    const old = items.filter((x) => x.sent && Date.now() - x.sent > 3600e3);
+    if (old.length) { items = items.filter((x) => !old.includes(x)); save(); }
+    render();
+    if (unsent().length) send();
+  });
   chrome.storage.onChanged.addListener((c) => { if (c[STORE_KEY]) { items = c[STORE_KEY].newValue || []; render(); } });
 
   function clipboardText() {
     const lines = items.map((it, i) => `${i + 1}. Seite ${it.path} · Element ${it.label}${it.text ? ` („${it.text.slice(0, 60)}“)` : ''}\n   Wunsch: ${it.wish}`);
-    const data = { aendern: 1, items: items.map(({ id, url, path, label, selector, text, html, wish }) => ({ id, url, path, label, selector, text, html, wish })) };
+    const data = { aendern: 1, items: payload(items) };
     return `Bitte setze diese Änderungen an meiner lokalen App um (markiert mit „Ändern“ in Chrome). Ändere jeweils nur genau das markierte Element, mit dem Edit-Werkzeug, ohne zu testen:\n\n${lines.join('\n')}\n\n<!--aendern-json\n${JSON.stringify(data)}\naendern-json-->`;
   }
   async function copy() {
@@ -92,23 +99,56 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.style.display = 'none'; }, 3500);
   }
 
+  // ---- Live an Claude schicken ---------------------------------------------------
+  // Claude wartet nach einmal /aendern im Live-Modus. Ist er gerade beschäftigt,
+  // wird alle 2 s nachgeschickt (nur aus dem sichtbaren Tab, damit nichts doppelt geht).
+  const unsent = () => items.filter((x) => !x.sent);
+  let sending = false, retryTimer = 0, warnedOffline = false;
+  const payload = (list) => list.map(({ id, url, path, label, selector, text, html, wish }) => ({ id, url, path, label, selector, text, html, wish }));
+  async function send(fromUser) {
+    clearTimeout(retryTimer);
+    const list = unsent();
+    if (!list.length || sending) return;
+    if (!fromUser && document.visibilityState !== 'visible') { retryTimer = setTimeout(send, 2000); return; }
+    sending = true;
+    let ok = false;
+    try { ok = (await chrome.runtime.sendMessage({ type: 'send', items: payload(list) }))?.ok; } catch { }
+    sending = false;
+    if (ok) {
+      const ids = new Set(list.map((x) => x.id));
+      const now = Date.now();
+      items = items.map((x) => ids.has(x.id) ? { ...x, sent: now } : x);
+      save(); render(); warnedOffline = false;
+      toast(`✓ An Claude übertragen${list.length > 1 ? ` (${list.length})` : ''}. Weiter anklicken mit Alt+E.`);
+    } else {
+      if (fromUser || !warnedOffline) {
+        await copy();
+        toast('Claude wartet gerade nicht. In der Desktop App einmal <b>/aendern</b> eingeben – die Änderung wird dann automatisch nachgeschickt.');
+        warnedOffline = true;
+      }
+      retryTimer = setTimeout(send, 2000);
+    }
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && unsent().length) send(); });
+
   // ---- Liste --------------------------------------------------------------------
   let panelOpen = false;
   function render() {
     const fab = $('fab');
     fab.classList.toggle('on', picking);
-    fab.innerHTML = '✎' + (items.length ? `<span class="n">${items.length}</span>` : '');
+    const n = unsent().length;
+    fab.innerHTML = '✎' + (n ? `<span class="n">${n}</span>` : '');
     const p = $('panel');
     if (!panelOpen || !items.length) { p.style.display = 'none'; return; }
     p.style.display = 'block';
-    p.innerHTML = `<h4>${items.length} Änderung${items.length === 1 ? '' : 'en'} gesammelt</h4>
-      <div class="muted" style="margin-bottom:6px">Liegt in der Zwischenablage. In der Claude Desktop App einfach <b>/aendern</b> eingeben.</div>
-      ${items.map((it) => `<div class="item"><div class="t"><div class="el">${esc(it.path)} · ${esc(it.label)}</div>${esc(it.wish)}</div><button class="x" data-del="${it.id}" title="Entfernen">×</button></div>`).join('')}
+    p.innerHTML = `<h4>${items.length} Änderung${items.length === 1 ? '' : 'en'}</h4>
+      <div class="muted" style="margin-bottom:6px">${n ? `${n} wartet auf Claude. In der Desktop App einmal <b>/aendern</b> eingeben, dann geht alles automatisch.` : 'Alles an Claude übertragen.'}</div>
+      ${items.map((it) => `<div class="item"><div class="t"><div class="el">${it.sent ? '✓ ' : '⏳ '}${esc(it.path)} · ${esc(it.label)}</div>${esc(it.wish)}</div><button class="x" data-del="${it.id}" title="Entfernen">×</button></div>`).join('')}
       <div class="row"><button class="btn" id="clear" title="Liste leeren, z. B. wenn Claude alles umgesetzt hat">Alle erledigt</button><span class="spacer"></span>
-        <button class="btn" id="more" title="Weiteres Element anklicken">+ Element</button><button class="btn primary" id="copy">Nochmal kopieren</button></div>`;
-    p.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => { items = items.filter((x) => x.id !== b.dataset.del); save(); copy(); render(); });
+        <button class="btn" id="more" title="Weiteres Element anklicken">+ Element</button><button class="btn" id="copy" title="Für den Notfall: alles in die Zwischenablage">Kopieren</button></div>`;
+    p.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => { items = items.filter((x) => x.id !== b.dataset.del); save(); render(); });
     p.querySelector('#clear').onclick = () => { items = []; save(); panelOpen = false; render(); toast('Liste geleert.'); };
-    p.querySelector('#copy').onclick = async () => { if (await copy()) toast('Kopiert. In Claude: <b>/aendern</b>'); };
+    p.querySelector('#copy').onclick = async () => { if (await copy()) toast('Kopiert. Mit ⌘V in Claude einfügen.'); };
     p.querySelector('#more').onclick = () => { panelOpen = false; startPick(); };
   }
   const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -218,10 +258,8 @@
     });
     save();
     closePop();
-    const ok = await copy();
-    panelOpen = true;
     render();
-    toast(ok ? `${items.length} Änderung${items.length === 1 ? '' : 'en'} kopiert. In Claude: <b>/aendern</b> · oder weiter anklicken (Alt+E)` : 'Gespeichert. Klick unten auf „Nochmal kopieren“.');
+    send(true);
   }
 
   // ---- Bedienung ---------------------------------------------------------------------

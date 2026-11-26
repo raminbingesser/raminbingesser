@@ -27,6 +27,8 @@ echo "     → Ordner „Aendern-Erweiterung“ einmal anklicken → „Auswähl
 echo "     (Oder den Ordner aus dem eben geöffneten Finder-Fenster in den Dialog ziehen.)"
 echo "  Den Ordner danach nicht löschen: Chrome lädt die Erweiterung von dort."
 echo
-echo "Danach: Auf deiner App (localhost) unten rechts ✎ → Element anklicken → Wunsch → Enter."
-echo "In der Claude Desktop App: /aendern"
+echo "Schon installiert? Dann in chrome://extensions bei „Ändern“ auf ⟳ (Neu laden) klicken."
+echo
+echo "Danach: In der Claude Desktop App einmal /aendern eingeben (Live-Modus)."
+echo "In Chrome: Alt+E → Element anklicken → Wunsch → Enter. Geht direkt an Claude."
 [ "$(uname)" = "Darwin" ] && open "$HOME" 2>/dev/null || true
