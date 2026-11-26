@@ -4,6 +4,7 @@
 // Rechner, also mit deinem Claude-Abo (claude login) oder optional einem API-Key.
 import express from 'express';
 import http from 'node:http';
+import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -612,6 +613,80 @@ preview.get(`/p/${PTOKEN}/:pid/*`, (req, res) => {
     res.sendFile(f, { dotfiles: 'allow' });
   } catch (e) { res.status(400).send(e.message); }
 });
+// ---- Durchreiche für laufende Apps (localhost:PORT) -----------------------------
+// Die Vorschau lädt deine App über einen eigenen Port von Flint. Flint reicht alles
+// unverändert durch, fügt nur in HTML-Seiten die Klick-Bearbeitung ein und entfernt
+// Sicherheits-Header, die das Einbetten in die Vorschau verhindern würden.
+// Deine App selbst wird nicht verändert.
+const proxies = new Map(); // Zielport -> Promise<Proxyport>
+const BRIDGE_ABS = () => `<script src="http://localhost:${PREVIEW_PORT}/__flint/bridge.js"></script>`;
+const STRIP = new Set(['content-security-policy', 'content-security-policy-report-only', 'x-frame-options', 'cross-origin-opener-policy', 'cross-origin-embedder-policy', 'cross-origin-resource-policy']);
+
+function startProxy(target) {
+  const srv = http.createServer((req, res) => {
+    const host = (req.headers.host || '').replace(/:\d+$/, '');
+    if (!['localhost', '127.0.0.1', '[::1]'].includes(host)) { res.writeHead(403); return res.end(); }
+    const myPort = srv.address().port;
+    const headers = { ...req.headers, host: `localhost:${target}`, 'accept-encoding': 'identity' };
+    if (headers.origin) headers.origin = headers.origin.replace(`:${myPort}`, `:${target}`);
+    if (headers.referer) headers.referer = headers.referer.replace(`:${myPort}`, `:${target}`);
+    const up = http.request({ host: '127.0.0.1', port: target, method: req.method, path: req.url, headers }, (ur) => {
+      const out = {};
+      for (const [k, v] of Object.entries(ur.headers)) if (!STRIP.has(k)) out[k] = v;
+      // Weiterleitungen auf die App-Adresse auf die Durchreiche umbiegen
+      if (out.location) out.location = String(out.location).replace(new RegExp(`^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):${target}`), `http://localhost:${myPort}`);
+      if (/text\/html/i.test(ur.headers['content-type'] || '') && !ur.headers['content-encoding']) {
+        const chunks = [];
+        ur.on('data', c => chunks.push(c));
+        ur.on('end', () => {
+          let h = Buffer.concat(chunks).toString('utf8');
+          if (!h.includes('/__flint/bridge.js')) h = /<head[^>]*>/i.test(h) ? h.replace(/<head[^>]*>/i, (m) => m + BRIDGE_ABS()) : BRIDGE_ABS() + h;
+          delete out['content-length'];
+          delete out['transfer-encoding'];
+          out['content-length'] = Buffer.byteLength(h);
+          res.writeHead(ur.statusCode, out);
+          res.end(h);
+        });
+      } else {
+        res.writeHead(ur.statusCode, out);
+        ur.pipe(res);
+      }
+    });
+    up.on('error', () => { if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' }); res.end('Die App antwortet nicht.'); });
+    req.pipe(up);
+  });
+  // WebSockets (z. B. Hot Reload von Vite/Next) einfach durchreichen
+  srv.on('upgrade', (req, socket, head) => {
+    const up = net.connect(target, '127.0.0.1', () => {
+      const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`];
+      for (let i = 0; i < req.rawHeaders.length; i += 2) {
+        const k = req.rawHeaders[i];
+        lines.push(`${k}: ${k.toLowerCase() === 'host' ? `localhost:${target}` : req.rawHeaders[i + 1]}`);
+      }
+      up.write(lines.join('\r\n') + '\r\n\r\n');
+      if (head?.length) up.write(head);
+      up.pipe(socket); socket.pipe(up);
+    });
+    up.on('error', () => socket.destroy());
+    socket.on('error', () => up.destroy());
+  });
+  return new Promise((resolve, reject) => {
+    srv.on('error', reject);
+    srv.listen(0, '127.0.0.1', () => resolve(srv.address().port));
+  });
+}
+
+api.get('/proxy', wrap(async (req) => {
+  let u;
+  try { u = new URL(String(req.query.url)); } catch { throw new Error('Ungültige Adresse.'); }
+  if (!['localhost', '127.0.0.1', '0.0.0.0', '[::1]'].includes(u.hostname)) return { url: u.href, proxied: false };
+  const target = Number(u.port || 80);
+  if ([PORT, PREVIEW_PORT].includes(target)) return { url: u.href, proxied: false };
+  if (!proxies.has(target)) proxies.set(target, startProxy(target).catch((e) => { proxies.delete(target); throw e; }));
+  const port = await proxies.get(target);
+  return { url: `http://localhost:${port}${u.pathname}${u.search}${u.hash}`, proxied: true, origin: `http://localhost:${port}` };
+}));
+
 // Alles andere (z. B. /dashboard einer App mit eigenem Server): verständlicher Hinweis
 // statt "Cannot GET", und Flint bekommt Bescheid, dass die App gestartet werden muss.
 preview.use((req, res) => {

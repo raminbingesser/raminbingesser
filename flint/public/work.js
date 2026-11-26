@@ -84,6 +84,9 @@ function Preview({ pid }) {
   const [needsServer, setNeedsServer] = useState(false);
   const [down, setDown] = useState(false);
   const [starting, setStarting] = useState(false);
+  // Durchreiche für lokale Apps (siehe Server: /api/proxy)
+  const [proxy, setProxy] = useState(null);
+  const proxyRef = useRef(null);
 
   const loadFiles = () => api('GET', `/projects/${pid}/html-files`).then(fs => {
     setHtmlFiles(fs);
@@ -173,7 +176,7 @@ function Preview({ pid }) {
           if (cur.url !== m.url) { showApp(m.url); setFlash(f => f + 1); }
           return;
         }
-        else if (cur.url !== m.url || cur.mode !== 'url') setPreview(pid, { suggest: m.url });
+        else if (cur.mode !== 'url' || !sameOrigin(cur.url, m.url)) setPreview(pid, { suggest: m.url });
       }
     });
   }, [pid]);
@@ -182,6 +185,7 @@ function Preview({ pid }) {
   const allowedOrigin = () => {
     const cur = previewOf(pid);
     if (cur.mode === 'file') return S.info?.previewOrigin;
+    if (proxyRef.current?.for === cur.url && proxyRef.current.proxied) return proxyRef.current.origin;
     try { return new URL(cur.url).origin; } catch { return null; }
   };
   useEffect(() => {
@@ -278,8 +282,18 @@ function Preview({ pid }) {
     setSel({ key: Date.now(), image: up.path, x: e.clientX - st.left - 20, y: e.clientY - st.top - 20, w: 40, h: 40 });
   };
 
+  // Lokale Apps über Flints Durchreiche laden: dann klappt „✎ Ändern“ ohne Eingriff in die App.
+  useEffect(() => {
+    if (pv.mode !== 'url' || !pv.url) { proxyRef.current = null; setProxy(null); return; }
+    let alive = true;
+    api('GET', '/proxy?url=' + encodeURIComponent(pv.url))
+      .then(r => ({ ...r, for: pv.url }))
+      .catch(() => ({ for: pv.url, url: pv.url, proxied: false }))
+      .then(r => { if (alive) { proxyRef.current = r; setProxy(r); } });
+    return () => { alive = false; };
+  }, [pv.mode, pv.url]);
   const src = pv.mode === 'file' && pv.file ? rawUrl(pid, pv.file, pv.nonce || 0)
-    : pv.mode === 'url' && pv.url ? pv.url : null;
+    : pv.mode === 'url' && pv.url ? (proxy?.for === pv.url ? proxy.url : null) : null;
   const dev = pv.mode === 'sim' ? null : DEVICES[pv.device || 'desktop'];
   const where = pv.mode === 'file' ? pv.file : pv.url;
   const go = () => {
@@ -296,7 +310,6 @@ function Preview({ pid }) {
     sendPrompt(`In der Vorschau von ${where} treten JavaScript-Fehler auf. Finde die Ursache und behebe sie:\n${list}`);
     setErrors([]);
   };
-  const enableBridge = () => sendPrompt(`Bitte aktiviere die Klick-Bearbeitung von Flint für den Dev-Server dieses Projekts: Füge in die HTML-Hauptdatei (z. B. index.html bei Vite, oder das Root-Layout bei Next.js) dieses Script-Tag ein, aber NUR für die Entwicklung, nicht im Production-Build:\n<script src="${S.info?.previewOrigin}/__flint/bridge.js"></script>\nBei Vite z. B. über ein kleines Plugin mit apply: 'serve' und transformIndexHtml; bei Next.js nur wenn process.env.NODE_ENV === 'development'.`);
 
   return html`<div class="pane">
     <div class="toolbar">
@@ -339,9 +352,8 @@ function Preview({ pid }) {
       <span class="grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title=${errors.map(e => e.message).join('\n')}>${errors.length} Fehler in der Seite: ${errors[0].message}</span>
       <button class="btn sm primary" onClick=${fixErrors}>Claude beheben lassen</button>
       <button class="icon-btn" onClick=${() => setErrors([])}><${Icon} n="x" /></button></div>`}
-    ${pv.edit && pv.mode === 'url' && bridge === false && html`<div class="suggest"><${Icon} n="target" size="14" />
-      <span class="grow">Klick-Bearbeitung ist für diesen Server noch nicht aktiv.</span>
-      <button class="btn sm primary" onClick=${enableBridge}>Von Claude aktivieren lassen</button></div>`}
+    ${pv.edit && pv.mode === 'url' && proxy && !proxy.proxied && html`<div class="suggest"><${Icon} n="target" size="14" />
+      <span class="grow">„Ändern“ per Klick geht bei deinen lokalen Apps (localhost), nicht bei fremden Webseiten.</span></div>`}
     ${pv.edit && !sel && (pv.mode !== 'url' || bridge) && html`<div class="suggest" style="font-size:12px"><${Icon} n="target" size="14" />
       ${pv.mode === 'sim' ? 'Tippe im Simulator-Bild auf die Stelle, die sich ändern soll.' : 'Fahre über die Seite und klick auf das, was sich ändern soll.'} <span class="spacer"></span><span class="muted">Esc beendet</span></div>`}
     ${pv.mode === 'url' && html`<div class="suggest" style="background:transparent;font-size:12px">
