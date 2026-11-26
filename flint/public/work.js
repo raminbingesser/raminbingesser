@@ -93,17 +93,38 @@ function Preview({ pid }) {
     api('GET', `/projects/${pid}/runinfo`).catch(() => ({ server: false })).then(r => { runRef.current = r; setRun(r); loadFiles(); });
   }, [pid]);
 
-  // App im Terminal starten; die erste erkannte Adresse erscheint automatisch in der Vorschau.
+  // Antwortet unter dieser Adresse ein Server?
+  const isUp = async (url) => !!url && (await api('GET', `/probe?url=${encodeURIComponent(url)}`).catch(() => null))?.up === true;
+  const showApp = (url) => {
+    setPreview(pid, { mode: 'url', url, waitUrl: false, suggest: null, hmr: !!runRef.current?.hmr, nonce: (previewOf(pid).nonce || 0) + 1 });
+    setUrlInput(url); setStarting(false); setDown(false); setNeedsServer(false);
+  };
+
+  // App starten: erst prüfen, ob sie schon läuft; nie doppelt starten; dann den Port abfragen.
   const startApp = async () => {
     const r = runRef.current;
+    if (await isUp(r?.url)) { showApp(r.url); toast('Die App läuft schon und wird angezeigt.'); return; }
     if (!r?.command) return sendPrompt('Starte die App dieses Projekts als Dev-Server im Hintergrund und nenne mir am Ende die lokale Adresse (http://localhost:…).');
     setStarting(true); setNeedsServer(false); setDown(false);
     setPreview(pid, { waitUrl: true, suggest: null });
-    const t = await safe(() => api('POST', `/projects/${pid}/terminals`, { title: 'App', command: r.command }));
-    if (!t) { setStarting(false); return; }
-    set({ terms: { ...S.terms, [pid]: [...(S.terms[pid] || []), t] } });
-    toast(`App startet (${r.command}) … die Vorschau erscheint, sobald der Server läuft.`);
-    setTimeout(() => setStarting(s => { if (s) toast('Der Server braucht länger. Schau im Tab „Terminal“ nach, was passiert.', 'err'); return false; }), 90000);
+    const list = S.terms[pid] || await api('GET', `/projects/${pid}/terminals`).catch(() => []);
+    const running = list.find(t => t.title === 'App' && !t.exited);
+    if (running) toast('Die App läuft schon in einem Terminal. Ich warte, bis sie antwortet…');
+    else {
+      const t = await safe(() => api('POST', `/projects/${pid}/terminals`, { title: 'App', command: r.command }));
+      if (!t) { setStarting(false); setPreview(pid, { waitUrl: false }); return; }
+      set({ terms: { ...S.terms, [pid]: [...list, t] } });
+      toast(`App startet (${r.command}) … die Vorschau erscheint, sobald der Server läuft.`);
+    }
+    // Unabhängig von der Terminal-Ausgabe: bekannten Port abfragen.
+    for (let i = 0; i < 60; i++) {
+      await new Promise(res => setTimeout(res, 1500));
+      if (!previewOf(pid).waitUrl) return; // schon erkannt
+      if (await isUp(r.url)) { showApp(r.url); return; }
+    }
+    setStarting(false);
+    setPreview(pid, { waitUrl: false });
+    toast('Der Server antwortet nicht. Schau im Tab „Terminal“ nach, was passiert, oder sag Claude „starte die App“.', 'err');
   };
 
   const reload = (auto) => {
@@ -131,9 +152,14 @@ function Preview({ pid }) {
       if (m.type === 'files:changed' && m.projectId === pid) { m.paths.forEach(p => paths.add(p)); run(); }
       if (m.type === 'preview:url' && m.projectId === pid) {
         const cur = previewOf(pid);
+        if (m.guess) {
+          // nur eine Vermutung (Port aus der Ausgabe): anzeigen, wenn wir warten und dort wirklich etwas antwortet
+          if (cur.waitUrl) isUp(m.url).then(up => { if (up && previewOf(pid).waitUrl) showApp(m.url); });
+          return;
+        }
         if (!cur.mode || cur.waitUrl) {
-          setPreview(pid, { mode: 'url', url: m.url, suggest: null, waitUrl: false, hmr: !!runRef.current?.hmr, nonce: (cur.nonce || 0) + 1 });
-          setUrlInput(m.url); setStarting(false); setDown(false); setNeedsServer(false);
+          showApp(m.url);
+          return;
         }
         else if (cur.url !== m.url || cur.mode !== 'url') setPreview(pid, { suggest: m.url });
       }
@@ -352,6 +378,9 @@ onMessage((m) => {
   if (m.type === 'term:exit') {
     const t = termRegistry.get(m.termId);
     if (t) t.term.write(`\r\n\x1b[90m[Prozess beendet (${m.code}). Tab schließen oder neues Terminal öffnen.]\x1b[0m\r\n`);
+    // merken, damit „App starten“ weiß, dass hier nichts mehr läuft
+    const terms = Object.fromEntries(Object.entries(S.terms).map(([k, list]) => [k, (list || []).map(x => (x.id === m.termId ? { ...x, exited: true } : x))]));
+    set({ terms });
   }
 });
 

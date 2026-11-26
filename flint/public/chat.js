@@ -388,7 +388,7 @@ export function Chat() {
   return html`<div class="chat">
     ${s ? html`<${Header} s=${s} />` : html`<div class="chat-head">
       ${!S.showSide && html`<button class="icon-btn" onClick=${() => { set({ showSide: true }); persist(); }}><${Icon} n="side" /></button>`}
-      <span class="chat-title">${p.name}</span><span class="crumb">${p.path}</span><span class="spacer"></span>
+      <span class="chat-title">${p.name}</span><span class="crumb" title=${p.path}>${p.path}</span><span class="spacer"></span>
       <button class="btn sm" onClick=${() => newSession()}><${Icon} n="plus" /> Sitzung</button>
       <button class=${'icon-btn' + (S.showWork ? ' on' : '')} onClick=${() => { set({ showWork: !S.showWork }); persist(); }}><${Icon} n="panel" /></button>
     </div>`}

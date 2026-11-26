@@ -32,6 +32,12 @@ export function createTerminal({ projectId, cwd, env, title, emit }) {
     // Lokale URLs (Dev-Server) erkennen und der Vorschau vorschlagen.
     const clean = d.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
     for (const m of clean.matchAll(URL_RE)) emit({ type: 'preview:url', projectId, url: m[0].replace(/[.,;:]+$/, '') });
+    // Server, die nur den Port nennen („listening on port 3333“, „EADDRINUSE …:3333“).
+    // Als Vermutung markiert: die Vorschau prüft erst, ob dort wirklich etwas antwortet.
+    for (const m of clean.matchAll(/(?:\bport\b|listening on|läuft auf|running on|EADDRINUSE[^\n]*?:)\D{0,12}?(\d{4,5})\b/gi)) {
+      const port = Number(m[1]);
+      if (port >= 1024 && port <= 65535) emit({ type: 'preview:url', projectId, url: `http://localhost:${port}`, guess: true });
+    }
   });
   p.onExit(({ exitCode }) => {
     t.exited = true;

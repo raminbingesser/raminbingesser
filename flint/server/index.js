@@ -329,6 +329,23 @@ api.post('/sessions/:sid/permission/:req', wrap((req) => agents.answerPermission
 api.get('/projects/:pid/files', wrap((req) => files.listDir(project(req).path, req.query.path || '')));
 api.get('/projects/:pid/file', wrap((req) => files.readFile(project(req).path, req.query.path)));
 api.put('/projects/:pid/file', wrap((req) => files.writeFile(project(req).path, req.body.path, req.body.text)));
+// Auf welchem Port läuft die App? Aus Skript, .env, Server-Datei oder Framework-Standard.
+function guessPort(dir, pkg, script = '', framework) {
+  const m1 = String(script).match(/(?:--port[ =]|-p\s+|PORT=)(\d{2,5})/);
+  if (m1) return Number(m1[1]);
+  for (const f of ['.env.local', '.env.development', '.env']) {
+    try { const m = fs.readFileSync(path.join(dir, f), 'utf8').match(/^\s*PORT\s*=\s*["']?(\d{2,5})/m); if (m) return Number(m[1]); } catch { }
+  }
+  const files = [pkg?.main, 'server.js', 'server.mjs', 'server.ts', 'index.js', 'app.js', 'src/server.js', 'src/server.ts', 'src/index.js', 'src/index.ts', 'src/app.js', 'vite.config.js', 'vite.config.ts'].filter(Boolean);
+  for (const f of files) {
+    let t = '';
+    try { t = fs.readFileSync(path.join(dir, f), 'utf8').slice(0, 30000); } catch { continue; }
+    const m = t.match(/\bPORT\b[^\n\d]{0,40}?(\d{4,5})/) || t.match(/\.listen\(\s*(\d{4,5})/) || t.match(/\bport\s*:\s*(\d{4,5})/);
+    if (m) return Number(m[1]);
+  }
+  return { 'Next.js': 3000, React: 3000, Vite: 5173, SvelteKit: 5173, Astro: 4321, Express: 3000 }[framework] || null;
+}
+
 // Wie startet man diese App? (package.json-Skripte, Paketmanager, Python)
 api.get('/projects/:pid/runinfo', wrap((req) => {
   const dir = project(req).path;
@@ -343,9 +360,10 @@ api.get('/projects/:pid/runinfo', wrap((req) => {
     const framework = deps.next ? 'Next.js' : deps.vite ? 'Vite' : deps['react-scripts'] ? 'React' : deps.astro ? 'Astro' : deps['@sveltejs/kit'] ? 'SvelteKit' : deps.express ? 'Express' : null;
     if (!script) return { server: false };
     const install = has('node_modules') ? '' : `${pm} install && `;
-    return { server: true, script, pm, framework, command: `${install}${pm} run ${script}`, hmr: ['Next.js', 'Vite', 'Astro', 'SvelteKit', 'React'].includes(framework) };
+    const port = guessPort(dir, pkg, scripts[script], framework);
+    return { server: true, script, pm, framework, port, url: port ? `http://localhost:${port}` : null, command: `${install}${pm} run ${script}`, hmr: ['Next.js', 'Vite', 'Astro', 'SvelteKit', 'React'].includes(framework) };
   }
-  if (has('manage.py')) return { server: true, framework: 'Django', command: 'python3 manage.py runserver', hmr: false };
+  if (has('manage.py')) return { server: true, framework: 'Django', port: 8000, url: 'http://localhost:8000', command: 'python3 manage.py runserver', hmr: false };
   return { server: false };
 }));
 
