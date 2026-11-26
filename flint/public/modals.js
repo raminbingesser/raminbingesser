@@ -384,7 +384,7 @@ function Settings({ section }) {
   return html`<${Modal} title="Einstellungen" wide>
     <label class="lbl">Claude</label>
     <div class="list"><div class="list-item">
-      <span class=${'pill ' + (c?.loggedIn ? 'ok' : 'bad')}>${c ? (c.loggedIn ? 'angemeldet' : 'nicht angemeldet') : '…'}</span>
+      <span class=${'pill ' + (c?.loggedIn ? 'ok' : 'bad')}>${c ? (c.loggedIn ? 'angemeldet' : c.expired ? 'Anmeldung abgelaufen' : 'nicht angemeldet') : '…'}</span>
       <span class="small grow">${c?.loggedIn ? (c.method === 'claude.ai' || /oauth/i.test(c.method || '') ? 'Mit deinem Claude-Abo' : `Methode: ${c.method}`) : 'Melde dich mit deinem Claude-Konto an (Pro/Max).'}</span>
       <button class="btn sm" onClick=${() => set({ modal: { type: 'term', title: 'Bei Claude anmelden', preset: 'login', after: 'settings' } })}>${c?.loggedIn ? 'Konto wechseln' : 'Anmelden'}</button>
     </div>

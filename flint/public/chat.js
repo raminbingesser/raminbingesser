@@ -142,10 +142,15 @@ function Messages({ sid }) {
   const running = r.status !== 'idle';
   return html`<div class="msgs" ref=${box} onScroll=${onScroll}>
     ${events.map((e, i) => {
+      if (e.auth && e.type !== 'result' && e.type !== 'user') {
+        // Anmeldefehler nur einmal pro Durchgang zeigen, mit Knopf zum Neu-Anmelden
+        if (events.slice(Math.max(0, i - 4), i).some(x => x.auth && x.type !== 'result' && x.type !== 'user')) return null;
+        return html`<${AuthBox} key=${i} />`;
+      }
       if (e.type === 'user') return html`<div class="msg user" key=${i}><div class="bubble">${e.text}</div></div>`;
       if (e.type === 'text') return html`<div class="msg assistant" key=${i}>${e.sub && html`<span class="sub-tag">Helfer</span>`}<div class="md" dangerouslySetInnerHTML=${{ __html: md(e.text) }}></div></div>`;
       if (e.type === 'tool_use') return html`<${ToolCall} key=${i} ev=${e} result=${results[e.id]} running=${running} root=${root} />`;
-      if (e.type === 'result') return html`<div class="result-line" key=${i}>${e.isError ? html`<span class="st-err">Fehler</span>` : 'fertig'} · ${fmtDur(e.durationMs)}${e.costUsd ? ` · ≈ $${e.costUsd.toFixed(2)}` : ''}</div>${e.isError && e.message ? html`<div class="err-box">${e.message}</div>` : null}`;
+      if (e.type === 'result') return html`<div class="result-line" key=${i}>${e.isError ? html`<span class="st-err">Fehler</span>` : 'fertig'} · ${fmtDur(e.durationMs)}${e.costUsd ? ` · ≈ $${e.costUsd.toFixed(2)}` : ''}</div>${e.isError && e.message && !e.auth ? html`<div class="err-box">${e.message}</div>` : null}`;
       if (e.type === 'error') return html`<div class="err-box" key=${i}>${e.message}</div>`;
       if (e.type === 'permission') return html`<div class="perm-note" key=${i}>${e.decision === 'deny' ? '✕ abgelehnt' : e.decision === 'answer' ? '✓ beantwortet' : '✓ erlaubt'}: ${toolName(e.toolName)}</div>`;
       return null;
@@ -321,6 +326,44 @@ function Composer({ sid }) {
   </div>`;
 }
 
+// ---- Anmeldung abgelaufen --------------------------------------------------------
+function AuthBox() {
+  return html`<div class="perm" style="border-color:var(--err);background:rgba(250,82,82,.07)">
+    <div class="perm-title"><span style="color:var(--err)">●</span> Claude-Anmeldung abgelaufen</div>
+    <p class="small" style="margin:0 0 10px;color:var(--ink-2)">Deine Anmeldung bei Claude ist abgelaufen oder wurde widerrufen (z. B. nach einer Anmeldung an anderer Stelle). Melde dich neu an und schick die Nachricht danach nochmal.</p>
+    <button class="btn primary sm" onClick=${() => set({ modal: { type: 'term', title: 'Bei Claude anmelden', preset: 'login' } })}>Neu anmelden</button>
+  </div>`;
+}
+
+// ---- Projektpfad: anklicken = ganzer Pfad, kopieren, im Finder zeigen ------------
+function PathChip({ p, full }) {
+  const [open, setOpen] = useState(false);
+  const short = p.path.replace(/^\/Users\/[^/]+/, '~');
+  useEffect(() => {
+    if (!open) return;
+    const off = () => setOpen(false);
+    setTimeout(() => window.addEventListener('click', off), 0);
+    return () => window.removeEventListener('click', off);
+  }, [open]);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(p.path); toast('Pfad kopiert'); } catch { toast(p.path); }
+  };
+  return html`<span style="position:relative;min-width:0;display:inline-flex">
+    ${full
+      ? html`<span class="crumb" style="cursor:pointer" title="Klicken für den ganzen Pfad" onClick=${(e) => { e.stopPropagation(); setOpen(!open); }}>${short}</span>`
+      : html`<button class="icon-btn" title="Projektordner" onClick=${(e) => { e.stopPropagation(); setOpen(!open); }}><${Icon} n="folder" size="14" /></button>`}
+    ${open && html`<div class="menu" style="top:calc(100% + 6px);bottom:auto;width:auto;min-width:320px;max-width:520px" onClick=${(e) => e.stopPropagation()}>
+      <div class="menu-sect">Projektordner</div>
+      <div class="mono small" style="padding:4px 8px 8px;word-break:break-all;user-select:text">${p.path}</div>
+      ${p.mainPath && html`<div class="small" style="padding:0 8px 8px;color:var(--warn)">Arbeitskopie von ${p.mainPath}</div>`}
+      <div class="row" style="padding:0 6px 6px">
+        <button class="btn sm" onClick=${copy}>Kopieren</button>
+        <button class="btn sm" onClick=${() => { safe(() => api('POST', `/projects/${p.id}/reveal`)); setOpen(false); }}>Im Finder zeigen</button>
+      </div>
+    </div>`}
+  </span>`;
+}
+
 // ---- Kopfzeile ---------------------------------------------------------------
 function Header({ s }) {
   const [edit, setEdit] = useState(false);
@@ -336,6 +379,7 @@ function Header({ s }) {
         ? html`<span class="chat-title"><input ref=${(el) => el && setTimeout(() => el.focus(), 0)} value=${s.title} onBlur=${(e) => { setEdit(false); patch('title', e.target.value || s.title); }} onKeyDown=${(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setEdit(false); }} /></span>`
         : html`<span class="chat-title" title="Umbenennen" onClick=${() => setEdit(true)}>${s.title}</span>`}
       <span class="crumb">${p?.variantName ? `${project(p.variantOf)?.name} · ${p.variantName}` : p?.name}${s.parentId ? ' · Helfer' : ''}</span>
+      ${p && html`<${PathChip} p=${p} />`}
       <span class="spacer"></span>
       <button class=${'icon-btn' + (S.showWork ? ' on' : '')} title=${`Arbeitsbereich ein/aus (${mod}J)`} onClick=${() => { set({ showWork: !S.showWork }); persist(); }}><${Icon} n="panel" /></button>
     </div>
@@ -388,7 +432,7 @@ export function Chat() {
   return html`<div class="chat">
     ${s ? html`<${Header} s=${s} />` : html`<div class="chat-head">
       ${!S.showSide && html`<button class="icon-btn" onClick=${() => { set({ showSide: true }); persist(); }}><${Icon} n="side" /></button>`}
-      <span class="chat-title">${p.name}</span><span class="crumb" title=${p.path}>${p.path}</span><span class="spacer"></span>
+      <span class="chat-title">${p.name}</span><${PathChip} p=${p} full /><span class="spacer"></span>
       <button class="btn sm" onClick=${() => newSession()}><${Icon} n="plus" /> Sitzung</button>
       <button class=${'icon-btn' + (S.showWork ? ' on' : '')} onClick=${() => { set({ showWork: !S.showWork }); persist(); }}><${Icon} n="panel" /></button>
     </div>`}

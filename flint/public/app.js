@@ -56,6 +56,9 @@ onMessage((m) => {
       set({ runtime: { ...S.runtime, [m.sid]: { ...r, pending: (r.pending || []).filter(p => p.reqId !== m.reqId) } } });
       break;
     }
+    case 'auth:expired':
+      api('GET', '/claude/status').then(c => set({ claude: c })).catch(() => { });
+      break;
     case 'project:added':
       if (!S.projects.find(p => p.id === m.project.id)) set({ projects: [...S.projects, m.project] });
       break;
@@ -174,7 +177,7 @@ function Welcome() {
       <button class="tile" onClick=${() => set({ modal: { type: 'mcp' } })}><div class="ti"><${Icon} n="plug" /></div><b>Tools verbinden</b><span>Higgsfield, Playwright, Notion, Supabase …</span></button>
     </div>
     <div class="status-card">
-      <span class=${'pill ' + (c?.loggedIn ? 'ok' : c ? 'bad' : '')}>${c ? (c.loggedIn ? 'Claude verbunden' : 'Claude nicht angemeldet') : 'prüfe…'}</span>
+      <span class=${'pill ' + (c?.loggedIn ? 'ok' : c ? 'bad' : '')}>${c ? (c.loggedIn ? 'Claude verbunden' : c.expired ? 'Claude-Anmeldung abgelaufen' : 'Claude nicht angemeldet') : 'prüfe…'}</span>
       <span class="small grow muted">${c?.loggedIn ? 'Flint nutzt dein Claude-Abo. Kein API-Key nötig.' : 'Einmal mit deinem Claude-Konto anmelden (Pro oder Max).'}</span>
       ${c && !c.loggedIn && html`<button class="btn sm primary" onClick=${() => set({ modal: { type: 'term', title: 'Bei Claude anmelden', preset: 'login' } })}>Anmelden</button>`}
     </div>
@@ -187,6 +190,17 @@ function Welcome() {
 // =====================================================================
 function VariantBar() {
   const p = project();
+  if (p?.mainPath) {
+    // Geöffnet ist nur eine Git-Arbeitskopie (z. B. der Claude Desktop App), nicht das eigentliche Projekt.
+    return html`<div class="suggest" style="border-bottom:1px solid var(--line);flex:none;background:rgba(250,176,5,.1)">
+      <span class="pill warn">Arbeitskopie</span>
+      <span class="grow small">Das ist eine Arbeitskopie (z. B. von der Claude Desktop App). Änderungen landen hier, nicht in deinem eigentlichen Projekt <span class="mono">${p.mainPath.replace(/^\/Users\/[^/]+/, '~')}</span>.</span>
+      <button class="btn sm primary" onClick=${async () => {
+        const { openProjectPath } = await import('./modals.js');
+        await openProjectPath(p.mainPath, S.projects.find(x => x.path === p.mainPath)?.id);
+      }}>Original öffnen</button>
+    </div>`;
+  }
   if (!p?.variantOf) return null;
   const parent = project(p.variantOf);
   return html`<div class="suggest" style="border-bottom:1px solid var(--line);flex:none">

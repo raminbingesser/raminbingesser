@@ -115,8 +115,15 @@ function setStatus(sid, status) {
   emit({ type: 'session:status', sid, status });
 }
 
+// Anmeldung abgelaufen/widerrufen? Dann zeigt die Oberfläche einen „Neu anmelden“-Knopf.
+const AUTH_RE = /authentication_failed|oauth token|log in again|please run \/login|not logged in|invalid api key|invalid x-api-key/i;
+// „claude auth status“ sieht nur, ob Anmeldedaten da sind, nicht ob sie gültig sind.
+// Deshalb merken wir uns echte Anmeldefehler und erfolgreiche Antworten.
+export const authState = { failedAt: 0, okAt: 0 };
 function record(sid, ev) {
   ev.ts = Date.now();
+  if (AUTH_RE.test(ev.message || ev.text || '')) { ev.auth = true; authState.failedAt = ev.ts; emit({ type: 'auth:expired' }); }
+  if (ev.type === 'result' && !ev.isError) authState.okAt = ev.ts;
   if (!store.getSession(sid)) return; // Sitzung wurde gelöscht
   store.appendEvent(sid, ev);
   emit({ type: 'session:event', sid, event: ev });
@@ -330,7 +337,11 @@ async function runTurn(sid, text) {
     }
   } catch (e) {
     const msg = String(e?.message || e);
-    record(sid, { type: 'error', message: abort.signal.aborted ? 'Abgebrochen.' : explainError(msg) });
+    // „process exited with code 1“ nach einem Anmeldefehler ist nur eine Folge davon: nicht doppelt anzeigen.
+    const authBefore = store.getSession(sid) && store.readEvents(sid).slice(-4).some(e => e.auth);
+    if (!(authBefore && /exited with code/i.test(msg))) {
+      record(sid, { type: 'error', message: abort.signal.aborted ? 'Abgebrochen.' : explainError(msg), auth: AUTH_RE.test(msg) || undefined });
+    }
   } finally {
     if (streamed) emit({ type: 'session:delta-reset', sid });
     r.query = null;
@@ -342,8 +353,8 @@ async function runTurn(sid, text) {
 }
 
 function explainError(msg) {
-  if (/auth|login|api key|401|credential/i.test(msg)) {
-    return `${msg}\n\nAnmeldung fehlt: Melde dich einmal im Terminal mit \`claude\` an (dein Claude-Abo) oder lege im Tresor einen ANTHROPIC_API_KEY an.`;
+  if (AUTH_RE.test(msg) || /auth|login|credential/i.test(msg)) {
+    return `Die Claude-Anmeldung ist abgelaufen oder ungültig. Klick auf „Neu anmelden“ und melde dich mit deinem Claude-Konto an, danach die Nachricht einfach nochmal senden.\n\n(${msg})`;
   }
   if (/ENOENT|spawn/i.test(msg)) {
     return `${msg}\n\nClaude Code konnte nicht gestartet werden. Prüfe die Installation (npm install) und ob der Projektordner existiert.`;

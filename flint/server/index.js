@@ -130,7 +130,12 @@ const project = (req) => {
 };
 
 api.get('/state', wrap(() => ({
-  projects: store.listProjects(),
+  // mainPath: gesetzt, wenn der Ordner nur eine Git-Arbeitskopie ist (z. B. der Claude Desktop App)
+  projects: store.listProjects().map(p => {
+    if (p.variantOf) return p;
+    const main = finder.mainRepo(p.path);
+    return main !== p.path ? { ...p, mainPath: main } : p;
+  }),
   sessions: store.listSessions(),
   runtime: agents.snapshot(),
   settings: store.getState().settings,
@@ -379,6 +384,13 @@ api.get('/probe', wrap(async (req) => {
   finally { clearTimeout(t); }
 }));
 
+// Projektordner im Finder zeigen (Mac) bzw. im Dateimanager öffnen.
+api.post('/projects/:pid/reveal', wrap((req) => {
+  const p = project(req);
+  const cmd = process.platform === 'darwin' ? ['open', [p.path]] : process.platform === 'win32' ? ['explorer', [p.path]] : ['xdg-open', [p.path]];
+  execFile(cmd[0], cmd[1], () => { });
+}));
+
 api.get('/projects/:pid/exists', wrap((req) => {
   const f = files.resolveIn(project(req).path, String(req.query.path || ''));
   return { exists: fs.existsSync(f) && (fs.statSync(f).isFile() || fs.existsSync(path.join(f, 'index.html'))) };
@@ -433,7 +445,7 @@ api.post('/projects/:pid/terminals', wrap((req) => {
   const t = term.createTerminal({ projectId: p.id, cwd: p.path, env: vault.envFor(p.variantOf || p.id), title: req.body?.title, emit: broadcast });
   const presets = {
     claude: () => claude.claudeCommand(),
-    login: () => claude.claudeCommand('auth login'),
+    login: () => { agents.authState.failedAt = 0; return claude.claudeCommand('auth login'); },
     'mcp-login': () => claude.claudeCommand('mcp login ' + String(req.body.name || '').replace(/[^\w.-]/g, '')),
   };
   const cmd = presets[req.body?.preset]?.() || req.body?.command;
@@ -446,7 +458,12 @@ api.get('/vault', wrap(() => vault.listSecrets()));
 api.post('/vault', wrap((req) => vault.setSecret(String(req.body.name || '').trim(), String(req.body.value || ''), req.body.projects || null)));
 api.delete('/vault/:name', wrap((req) => vault.deleteSecret(req.params.name)));
 
-api.get('/claude/status', wrap(() => claude.authStatus()));
+api.get('/claude/status', wrap(async () => {
+  const st = await claude.authStatus();
+  // Nach einem echten Anmeldefehler (ohne spätere erfolgreiche Antwort) gilt: abgelaufen.
+  if (st.loggedIn && agents.authState.failedAt > agents.authState.okAt) return { ...st, loggedIn: false, expired: true };
+  return st;
+}));
 
 // Flint beenden (z. B. aus den Einstellungen).
 api.post('/shutdown', wrap(() => { setTimeout(shutdown, 300); return { ok: true }; }));
@@ -455,7 +472,7 @@ api.get('/version', wrap(() => ({ version: JSON.parse(fs.readFileSync(path.join(
 // Terminal ohne Projekt (für Anmeldungen), läuft im Home-Ordner.
 api.post('/terminals/global', wrap((req) => {
   const presets = {
-    login: () => claude.claudeCommand('auth login'),
+    login: () => { agents.authState.failedAt = 0; return claude.claudeCommand('auth login'); },
     claude: () => claude.claudeCommand(),
     'mcp-login': () => claude.claudeCommand('mcp login ' + String(req.body.name || '').replace(/[^\w.-]/g, '')),
     'railway-login': () => 'railway login',

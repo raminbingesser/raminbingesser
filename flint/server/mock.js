@@ -50,6 +50,12 @@ export function mockQuery({ prompt, options }) {
 
   async function* gen() {
     yield { ...base, type: 'system', subtype: 'init', cwd: options.cwd, tools: [], model: options.model };
+    if (/authtest/i.test(prompt)) {
+      // wie bei abgelaufener Anmeldung: Text, API-Fehler, Fehler-Ergebnis, Prozessende
+      yield { ...assistant([{ type: 'text', text: 'Failed to authenticate: OAuth token revoked. Please log in again or contact your administrator.' }]), error: 'authentication_failed' };
+      yield { ...base, type: 'result', subtype: 'success', is_error: true, result: 'Failed to authenticate: OAuth token revoked. Please log in again or contact your administrator.', total_cost_usd: 0, duration_ms: 2000, num_turns: 1, usage: {} };
+      throw new Error('Claude Code process exited with code 1');
+    }
     if (/frage/i.test(prompt) && options.canUseTool) {
       const input = { questions: [{ question: 'Welche Diagrammart möchtest du?', header: 'Diagramm', multiSelect: false, options: [
         { label: 'Linien', description: 'Verlauf über Zeit' }, { label: 'Balken', description: 'Monate vergleichen' }, { label: 'Fläche', description: 'Volumen betonen' }] }] };
