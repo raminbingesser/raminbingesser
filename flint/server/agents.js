@@ -261,7 +261,29 @@ async function runTurn(sid, text) {
     }),
   };
   if (s.claudeSessionId) options.resume = s.claudeSessionId;
-  if (!MOCK && !s.parentId) {
+
+  // Persönliche Claude-Einstellungen (~/.claude: CLAUDE.md, Hooks, z. B. PAI) machen
+  // jede Antwort langsamer. Abschaltbar; die Schnellspur lädt sie nie.
+  const settings = store.getState().settings;
+  if (s.fast || settings.loadUserSettings === false) options.settingSources = ['project', 'local'];
+
+  // Schnellspur (✎ Ändern): schlankes Modell, wenig Denken, kein Prüfen, kurze Antwort.
+  if (s.fast) {
+    options.model = s.model || 'claude-sonnet-5-5';
+    options.effort = s.effort || 'low';
+    if (options.permissionMode === 'default' || options.permissionMode === 'plan') options.permissionMode = 'acceptEdits';
+    delete options.agents;
+    options.systemPrompt = {
+      type: 'preset', preset: 'claude_code',
+      append: `Schnelländerung in Flint im Projekt "${project.name}". Der Mensch sieht die Live-Vorschau und prüft selbst.\n`
+        + '- Mache genau die gewünschte Änderung, so klein wie möglich. Finde die Stelle zügig (Grep nach Text/Klasse/ID) und ändere sie direkt.\n'
+        + '- Nicht testen, keinen Browser öffnen, keine Screenshots, keine Server starten oder neu starten, keine Commits, keine Berichte.\n'
+        + '- Frag nur nach, wenn die Änderung wirklich mehrdeutig ist.\n'
+        + '- Antworte am Ende mit genau einem kurzen Satz auf Deutsch, was du geändert hast.',
+    };
+  }
+
+  if (!MOCK && !s.parentId && !s.fast) {
     try {
       options.mcpServers = { flint: await bossServer(s) };
     } catch (e) { console.warn('[flint] Helfer-Werkzeuge nicht verfügbar:', e.message); }

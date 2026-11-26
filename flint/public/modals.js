@@ -410,6 +410,10 @@ function Settings({ section }) {
       <span class="small grow">${c?.loggedIn ? (c.method === 'claude.ai' || /oauth/i.test(c.method || '') ? 'Mit deinem Claude-Abo' : `Methode: ${c.method}`) : 'Melde dich mit deinem Claude-Konto an (Pro/Max).'}</span>
       <button class="btn sm" onClick=${() => set({ modal: { type: 'term', title: 'Bei Claude anmelden', preset: 'login', after: 'settings' } })}>${c?.loggedIn ? 'Konto wechseln' : 'Anmelden'}</button>
     </div>
+    <div class="list-item">
+      <label class="row small grow" style="cursor:pointer"><input type="checkbox" checked=${st.loadUserSettings !== false} onChange=${(e) => save({ loadUserSettings: e.target.checked })} />
+        <span>Persönliche Claude-Einstellungen in Flint laden <span class="muted">(deine CLAUDE.md, Hooks und Ausgabeformate aus ~/.claude, z. B. „Jarvis“/PAI). Aus = deutlich schneller und sparsamer. „✎ Ändern“ lädt sie nie.</span></span></label>
+    </div>
     <div class="list-item"><span class="muted small">Programm</span><span class="mono small grow" style="overflow:hidden;text-overflow:ellipsis">${c?.bin || '…'}</span></div></div>
 
     <label class="lbl">Standard für neue Sitzungen</label>

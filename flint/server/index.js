@@ -684,7 +684,19 @@ api.get('/proxy', wrap(async (req) => {
   if ([PORT, PREVIEW_PORT].includes(target)) return { url: u.href, proxied: false };
   if (!proxies.has(target)) proxies.set(target, startProxy(target).catch((e) => { proxies.delete(target); throw e; }));
   const port = await proxies.get(target);
-  return { url: `http://localhost:${port}${u.pathname}${u.search}${u.hash}`, proxied: true, origin: `http://localhost:${port}` };
+  // Verbietet die App das Einbetten (X-Frame-Options / CSP frame-ancestors)? Dann geht nur die Durchreiche.
+  let frameBlocked = false;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2000);
+    const r = await fetch(u.href, { signal: ctrl.signal, redirect: 'manual' });
+    clearTimeout(t);
+    const xfo = (r.headers.get('x-frame-options') || '').toLowerCase();
+    const csp = (r.headers.get('content-security-policy') || '').toLowerCase();
+    const fa = csp.match(/frame-ancestors([^;]*)/);
+    frameBlocked = xfo === 'deny' || xfo === 'sameorigin' || (fa && !/\*|localhost:4317|http:\/\/localhost\b/.test(fa[1]));
+  } catch { }
+  return { url: `http://localhost:${port}${u.pathname}${u.search}${u.hash}`, proxied: true, origin: `http://localhost:${port}`, frameBlocked };
 }));
 
 // Alles andere (z. B. /dashboard einer App mit eigenem Server): verständlicher Hinweis

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import {
   html, S, set, api, safe, toast, send, onMessage, termRegistry, project, persist,
-  previewOf, setPreview, rawUrl, sendPrompt, debounce, mod, useDictation,
+  previewOf, setPreview, rawUrl, sendPrompt, sendQuickEdit, debounce, mod, useDictation,
 } from './core.js';
 import { Icon } from './icons.js';
 
@@ -38,7 +38,7 @@ function EditPop({ sel, where, stage, onDone, onClose, sim }) {
     } else {
       prompt = `Änderung an einem Element in der Vorschau (${where}):\nElement: ${sel.label}\nSelektor: ${sel.selector}\n${sel.text ? `Text: „${sel.text}“\n` : ''}HTML-Ausschnitt: ${sel.html}\n\nGewünschte Änderung: ${t}\n\nFinde das Element im Quellcode (es kann aus einer Vorlage, Komponente oder aus Daten stammen) und ändere nur das Nötige.`;
     }
-    sendPrompt(prompt);
+    sendQuickEdit(prompt);
     toast('Änderung an Claude geschickt');
     onDone();
   };
@@ -87,6 +87,11 @@ function Preview({ pid }) {
   // Durchreiche für lokale Apps (siehe Server: /api/proxy)
   const [proxy, setProxy] = useState(null);
   const proxyRef = useRef(null);
+  // Normal lädt die Vorschau die App direkt (Logins gelten). Nur für die Klick-Auswahl,
+  // wenn die App sie nicht selbst mitbringt, läuft sie über Flints Durchreiche.
+  const [viaProxy, setViaProxy] = useState(false);
+  const viaRef = useRef(false);
+  viaRef.current = viaProxy;
 
   const loadFiles = () => api('GET', `/projects/${pid}/html-files`).then(fs => {
     setHtmlFiles(fs);
@@ -185,7 +190,7 @@ function Preview({ pid }) {
   const allowedOrigin = () => {
     const cur = previewOf(pid);
     if (cur.mode === 'file') return S.info?.previewOrigin;
-    if (proxyRef.current?.for === cur.url && proxyRef.current.proxied) return proxyRef.current.origin;
+    if ((viaRef.current || proxyRef.current?.frameBlocked) && proxyRef.current?.for === cur.url && proxyRef.current.proxied) return proxyRef.current.origin;
     try { return new URL(cur.url).origin; } catch { return null; }
   };
   useEffect(() => {
@@ -292,8 +297,14 @@ function Preview({ pid }) {
       .then(r => { if (alive) { proxyRef.current = r; setProxy(r); } });
     return () => { alive = false; };
   }, [pv.mode, pv.url]);
+  useEffect(() => {
+    if (pv.mode !== 'url' || !pv.edit) { if (viaProxy) { setViaProxy(false); setBridge(null); } return; }
+    if (bridge === false && !viaProxy && proxy?.proxied) { setViaProxy(true); setBridge(null); }
+  }, [pv.mode, pv.edit, bridge, proxy]);
+  useEffect(() => { setViaProxy(false); }, [pv.url]);
+
   const src = pv.mode === 'file' && pv.file ? rawUrl(pid, pv.file, pv.nonce || 0)
-    : pv.mode === 'url' && pv.url ? (proxy?.for === pv.url ? proxy.url : null) : null;
+    : pv.mode === 'url' && pv.url ? (proxy?.for !== pv.url ? null : (viaProxy || proxy.frameBlocked) && proxy.proxied ? proxy.url : pv.url) : null;
   const dev = pv.mode === 'sim' ? null : DEVICES[pv.device || 'desktop'];
   const where = pv.mode === 'file' ? pv.file : pv.url;
   const go = () => {
@@ -352,6 +363,8 @@ function Preview({ pid }) {
       <span class="grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title=${errors.map(e => e.message).join('\n')}>${errors.length} Fehler in der Seite: ${errors[0].message}</span>
       <button class="btn sm primary" onClick=${fixErrors}>Claude beheben lassen</button>
       <button class="icon-btn" title="Fehler ausblenden" onClick=${() => setErrors([])}><${Icon} n="x" /></button></div>`}
+    ${viaProxy && pv.mode === 'url' && html`<div class="suggest" style="font-size:12px"><${Icon} n="target" size="14" />
+      <span class="grow">Für die Klick-Auswahl lädt Flint die App gerade über eine eigene Adresse. Ist die App dort nicht angemeldet, nutze z. B. den Demo-Modus. Nach „Ändern“ ist wieder alles wie gewohnt.</span></div>`}
     ${pv.edit && pv.mode === 'url' && proxy && !proxy.proxied && html`<div class="suggest"><${Icon} n="target" size="14" />
       <span class="grow">„Ändern“ per Klick geht bei deinen lokalen Apps (localhost), nicht bei fremden Webseiten.</span></div>`}
     ${pv.edit && !sel && (pv.mode !== 'url' || bridge) && html`<div class="suggest" style="font-size:12px"><${Icon} n="target" size="14" />
@@ -368,7 +381,7 @@ function Preview({ pid }) {
               <p>${sim.status && !sim.status.available ? sim.status.reason : sim.err || 'Starte deine App im Simulator, dann erscheint sie hier live.'}</p>
               ${sim.status?.available !== false && html`<button class="btn primary" onClick=${() => sendPrompt('Baue die iOS-App dieses Projekts und starte sie im iOS-Simulator (xcodebuild + xcrun simctl). Öffne vorher den Simulator, falls keiner läuft.')}>Claude: App bauen & starten</button>`}</div>`)
         : src
-          ? html`<iframe key=${pv.mode + (pv.mode === 'file' ? pv.file : pv.url) + ':' + (pv.nonce || 0)} ref=${frame} src=${src} onLoad=${onLoad} allow="clipboard-write; fullscreen"></iframe>`
+          ? html`<iframe key=${pv.mode + (pv.mode === 'file' ? pv.file : pv.url) + ':' + (pv.nonce || 0) + (viaProxy ? ':p' : '')} ref=${frame} src=${src} onLoad=${onLoad} allow="clipboard-write; fullscreen"></iframe>`
           : run?.server
             ? html`<div class="empty"><div class="big">▶️</div><h3>${run.framework || 'App'} starten</h3>
                 <p>Diese App hat einen eigenen Server. Flint startet ihn im Terminal und zeigt die App hier, sobald sie läuft.</p>

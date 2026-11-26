@@ -384,3 +384,21 @@ export async function installApp() {
     }
   }).observe(document.documentElement, { attributes: true, attributeFilter: ['title'], subtree: true });
 })();
+
+// ---- Schnellspur für ✎ Ändern --------------------------------------------------
+// Eigene, schlanke Sitzung pro Projekt (schnelles Modell, kein langer Verlauf).
+// Wird der Verlauf zu lang, beginnt automatisch eine frische.
+export async function sendQuickEdit(text) {
+  const pid = S.activePid;
+  if (!pid) return;
+  const list = sessionsOf(pid).filter(s => s.fast && !s.parentId);
+  let s = list[list.length - 1];
+  const heavy = s && ((s.usage?.inputTokens || 0) > 400000);
+  if (!s || heavy) {
+    s = await safe(() => api('POST', `/projects/${pid}/sessions`, { fast: true, title: '⚡ Schnelle Änderungen' }));
+    if (!s) return;
+    set({ sessions: { ...S.sessions, [s.id]: s }, events: { ...S.events, [s.id]: [] } });
+  }
+  selectSession(s.id);
+  await safe(() => api('POST', `/sessions/${s.id}/prompt`, { text }));
+}

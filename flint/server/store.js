@@ -99,9 +99,11 @@ export function addSession(projectId, opts = {}) {
     title: opts.title || 'Neue Sitzung',
     role: opts.role || null,
     claudeSessionId: null,
-    model: opts.model || state.settings.defaultModel,
-    effort: opts.effort || state.settings.defaultEffort,
-    permissionMode: opts.permissionMode || state.settings.defaultPermission,
+    // Schnellspur (✎ Ändern): schnelles Modell und wenig Denken als Standard
+    fast: !!opts.fast,
+    model: opts.model || (opts.fast ? (state.settings.fastModel || 'claude-sonnet-5-5') : state.settings.defaultModel),
+    effort: opts.effort || (opts.fast ? 'low' : state.settings.defaultEffort),
+    permissionMode: opts.permissionMode || (opts.fast && state.settings.defaultPermission === 'default' ? 'acceptEdits' : state.settings.defaultPermission),
     createdAt: Date.now(),
     usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, turns: 0 },
   };
